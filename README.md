@@ -1,79 +1,50 @@
 # cv-orman
 
-Standalone Next.js page for [sergi.mertsoylu.dev](https://sergi.mertsoylu.dev): the owner's public GitHub repos rendered as trees in a 3D forest.
+**[sergi.mertsoylu.dev](https://sergi.mertsoylu.dev)** — açık kaynak projelerimin sanal ormanı.
 
-- **Size** → stars + commits + age  
-- **Color / wilt** → days since last push  
-- **Species** → primary language  
+Her public GitHub reposu bir ağaç. Orman, CV veya düz liste yerine **canlı bir sergi**: neyin büyüdüğünü, neyin ne kadar süredir susuz kaldığını, hangi dilin hangi türde kök saldığını bir bakışta okuyorsun.
 
-Single-user, single-page. No auth, no DB — live GitHub GraphQL + ISR cache.
+## Ne işe yarar?
 
-## Stack
+Portfolio’yu “repo listesi” olmaktan çıkarıp **mekân** yapar. Ziyaretçi:
 
-- Next.js 16 (App Router, Turbopack) + React 19  
-- react-three-fiber / drei / Three.js  
-- Tailwind CSS 4  
+- ormanı dolaşır (sürükle, zoom),
+- bir ağaca veya tabelasına tıklar,
+- o projenin yıldız, commit, yaş ve sağlık özetini görür,
+- tek tıkla GitHub’a gider.
 
-## Setup
+Veri anlık uydurma değil: GitHub GraphQL’den gelir, periyodik yenilenir. Arşivlenmiş ve fork repolar ormana girmez — sadece orijinal, public, yaşayan projeler.
 
-```bash
-cp .env.example .env.local
-# fill GITHUB_TOKEN + GITHUB_USERNAME
-npm install
-npm run dev
-```
+## Ormanı nasıl okursun?
 
-Open [http://localhost:3000](http://localhost:3000).
+| Gözlem | Anlam |
+|--------|--------|
+| **Boyut** | Büyüme skoru: yıldız + commit hacmi + yaş. Daha büyük ağaç = daha “gövdeli” proje. |
+| **Renk / solma** | Sağlık: son push’tan bu yana geçen gün. Taze yeşil → susuz kahverengi. |
+| **Tür (siluet)** | Ana dil. Meşe (TS/JS/Java…), çam (Rust/C/C++), sakura (Python/Ruby), huş (Go/PHP/HTML/CSS), palmiye (Swift), genel (diğer). |
 
-### Env
+Gündüz / gece teması siteyle birlikte değişir; düşük güçlü cihazlarda kalite basamakları otomatik düşer. WebGL yoksa veya sahne düşerse aynı repolar erişilebilir bir listede kalır.
 
-| Var | Purpose |
-|-----|---------|
-| `GITHUB_TOKEN` | PAT for GraphQL (classic or fine-grained) |
-| `GITHUB_USERNAME` | Whose public repos become trees |
+## Neden orman?
 
-Missing either → `/` and `/api/repos` fail with a clear error (not silent empty forest).
+Düz bir “Projects” grid’i herkeste aynı. Burada metafor bilinçli:
 
-## Scripts
+- **Büyüme** = ilgi + emek + zaman  
+- **Sulama** = son commit (proje terk edilmiş mi, hâlâ bakılıyor mu?)  
+- **Biyolojik çeşitlilik** = dil spektrumu  
 
-```bash
-npm run dev      # Turbopack dev
-npm run build    # production build (+ typecheck)
-npm run start    # serve production build
-npm run lint     # eslint
-npx tsc --noEmit # typecheck only
-```
+Yani orman hem vitrin hem de sessiz bir aktivite haritası: hangi ağaçlar taze, hangileri soluyor, hangileri devasa.
 
-No test runner. Verify with tsc + lint + build + manual browser check of `/`.
+## Ne değil?
 
-## Deploy (Vercel)
+- Çok kullanıcılı SaaS değil — tek kişinin sergisi.  
+- Veritabanı yok; durum GitHub’dan türetilir.  
+- Yeni feature platformu değil; tek sayfalık deneyim.
 
-1. Import this repo on [Vercel](https://vercel.com).  
-2. Project env: `GITHUB_TOKEN`, `GITHUB_USERNAME`.  
-3. Domain: `sergi.mertsoylu.dev` (DNS → Vercel).  
-4. Deploy.  
+## Teknik iskelet (kısa)
 
-`/` revalidates every **3600s** (`revalidate` on the page + `fetch` cache). After first generation, GitHub is not hit every request.
+Next.js + React Three Fiber ile 3B sahne; sunucu tarafta repo çekimi ve skorlama, istemcide sergi salonu. Ana site: [mertsoylu.dev](https://mertsoylu.dev).
 
-### Production checklist
+---
 
-- [ ] Env vars set in Vercel (Production + Preview if needed)  
-- [ ] Custom domain + HTTPS  
-- [ ] `/` loads forest (or explicit error state if GitHub fails)  
-- [ ] OG card: share `https://sergi.mertsoylu.dev` once  
-- [ ] Main site links to sergi if desired  
-
-## Architecture (short)
-
-```
-lib/github/*     GraphQL fetch + normalize
-lib/forest/*     growth / health / species / layout
-app/page.tsx     Server: fetch → layout → ForestPageClient
-components/renderers/three-3d/   R3F scene
-```
-
-`/api/repos` JSON endpoint exists but the page path does **not** call it — server component fetches directly.
-
-## License
-
-Private portfolio project.
+*Mert Soylu · açık kaynak projelerin mekânsal portresi.*
