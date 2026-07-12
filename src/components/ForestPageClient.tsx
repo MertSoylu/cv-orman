@@ -1,0 +1,180 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Navbar from "./Navbar";
+import Footer from "./Footer";
+import Forest3D from "./renderers/three-3d/Forest3D";
+import TreeDetailPanel from "./TreeDetailPanel";
+import ErrorBoundary from "./ErrorBoundary";
+import RepoFallbackList from "./RepoFallbackList";
+import SceneLoadingIndicator from "./SceneLoadingIndicator";
+import { useTreeSelection } from "@/hooks/useTreeSelection";
+import { useLanguage } from "@/context/LanguageContext";
+import { useDarkMode } from "@/context/DarkModeContext";
+import { useT } from "@/lib/i18n/dict";
+import { HEALTH } from "@/lib/config";
+import type { PlacedTreeData } from "@/lib/forest/treeData";
+
+const GLASS_STYLE: React.CSSProperties = {
+  backgroundColor: "rgb(var(--canvas) / 0.88)",
+  borderColor: "rgb(var(--line) / 0.14)",
+};
+
+// Same greens/browns the 3D foliage wilts through -- the legend bar is a
+// truthful sample of the scene's health ramp, not a decorative gradient.
+const HEALTH_RAMP = "linear-gradient(90deg, #4f7942, #d9a441, #8a5a2b)";
+
+export interface ForestPageClientProps {
+  trees: PlacedTreeData[];
+  /** True when the server-side GitHub fetch failed. */
+  error: boolean;
+}
+
+export default function ForestPageClient({ trees, error }: ForestPageClientProps) {
+  const t = useT();
+  const { language } = useLanguage();
+  const { isDark } = useDarkMode();
+  const { selectedId, select, clear } = useTreeSelection();
+  const [sceneReady, setSceneReady] = useState(false);
+  const selectedTree = trees.find((tree) => tree.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (sceneReady) return;
+    const timer = setTimeout(() => setSceneReady(true), 8000);
+    return () => clearTimeout(timer);
+  }, [sceneReady]);
+
+  const locale = language === "tr" ? "tr-TR" : "en-US";
+  const stats = useMemo(() => {
+    const healthy = trees.filter((tree) => tree.healthStage >= HEALTH.HEALTHY_STAGE_THRESHOLD).length;
+    const stars = trees.reduce((sum, tree) => sum + tree.stars, 0);
+    return { healthy, stars };
+  }, [trees]);
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[200] focus:rounded-lg focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-fg focus:shadow-lg">
+        {t("a11y.skipToContent")}
+      </a>
+      <Navbar />
+
+      <main id="main-content" className="flex flex-1 flex-col">
+        {/* Screen-reader/crawler-reachable repo list -- the 3D canvas has no
+            DOM equivalent, so this is the only way a11y tools and search
+            engines ever see the actual repo data. */}
+        {trees.length > 0 && <RepoFallbackList trees={trees} visuallyHidden />}
+
+        {error || trees.length === 0 ? (
+          <>
+            <div className="container-wide pb-2 pt-10">
+              <span className="eyebrow mb-3">{t("hero.badge")}</span>
+              <h1 className="mb-2 font-display text-3xl font-semibold text-fg sm:text-4xl">{t("hero.title")}</h1>
+            </div>
+            {error ? (
+              <div role="alert" aria-live="assertive">
+                <StateBlock title={t("state.error.title")} body={t("state.error.body")} />
+              </div>
+            ) : (
+              <div role="status" aria-live="polite">
+                <StateBlock title={t("state.empty.title")} body={t("state.empty.body")} />
+              </div>
+            )}
+          </>
+        ) : (
+          <section className="relative w-full overflow-hidden" style={{ height: "max(560px, calc(100vh - 4rem))" }}>
+            {!sceneReady && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-canvas" role="status" aria-live="polite">
+                <SceneLoadingIndicator />
+              </div>
+            )}
+
+            <ErrorBoundary
+              fallback={
+                <div className="h-full overflow-y-auto py-4">
+                  <StateBlock title={t("state.webglError.title")} body={t("state.webglError.body")} />
+                  <RepoFallbackList trees={trees} />
+                </div>
+              }
+            >
+              <Forest3D trees={trees} onSelect={select} selectedId={selectedId} isDark={isDark} onReady={() => setSceneReady(true)} />
+            </ErrorBoundary>
+
+            {/* Soft readability wash behind the exhibit label. */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-black/25 to-transparent" aria-hidden="true" />
+
+            {/* Exhibit label: the hero floats over the garden like a museum wall text. */}
+            <div className="pointer-events-none absolute inset-x-0 top-0">
+              <div className="container-wide pt-5 sm:pt-8">
+                <div className="pointer-events-auto max-w-md rounded-2xl border p-5 shadow-lg backdrop-blur-md sm:p-6" style={GLASS_STYLE}>
+                  <span className="eyebrow mb-2">
+                    <span className="relative flex h-2 w-2" aria-hidden="true">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+                    </span>
+                    {t("hero.badge")}
+                  </span>
+                  <h1 className="mb-1.5 font-display text-3xl font-semibold text-fg sm:text-4xl">{t("hero.title")}</h1>
+                  <p className="text-sm leading-relaxed text-muted">{t("hero.subtitle")}</p>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <StatChip value={trees.length.toLocaleString(locale)} label={t("stats.trees")} />
+                    <StatChip value={stats.healthy.toLocaleString(locale)} label={t("stats.healthy")} />
+                    <StatChip value={stats.stars.toLocaleString(locale)} label={t("stats.stars")} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Legend + interaction hint pinned to the bottom edge. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-4">
+              <div className="container-wide flex flex-wrap items-end justify-between gap-3">
+                <div className="pointer-events-auto rounded-xl border px-4 py-3 backdrop-blur-md" style={GLASS_STYLE}>
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">{t("legend.title")}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-medium text-fg">{t("legend.healthy")}</span>
+                    <span className="h-1.5 w-28 rounded-full sm:w-36" style={{ background: HEALTH_RAMP }} aria-hidden="true" />
+                    <span className="text-[11px] font-medium text-fg">{t("legend.wilted")}</span>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-muted">{t("legend.health")}</p>
+                  <p className="text-[11px] text-muted">{t("legend.size")}</p>
+                  <p className="mt-1.5 text-[11px] text-muted">{t("legend.species")}</p>
+                </div>
+
+                <p className="rounded-full border px-3.5 py-1.5 text-xs text-muted backdrop-blur-md" style={GLASS_STYLE}>
+                  {t("hero.hint")}
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+      </main>
+
+      <Footer />
+      <TreeDetailPanel tree={selectedTree} onClose={clear} />
+    </div>
+  );
+}
+
+function StatChip({ value, label }: { value: string; label: string }) {
+  return (
+    <span
+      className="inline-flex items-baseline gap-1.5 rounded-full border px-3 py-1"
+      style={{ backgroundColor: "rgb(var(--surface) / 0.7)", borderColor: "rgb(var(--line) / 0.12)" }}
+    >
+      <span className="font-display text-sm font-semibold text-fg">{value}</span>
+      <span className="text-[11px] text-muted">{label}</span>
+    </span>
+  );
+}
+
+function StateBlock({ title, body, detail }: { title: string; body: string; detail?: string }) {
+  return (
+    <div className="container-wide flex flex-1 items-center justify-center py-20">
+      <div className="card max-w-md p-8 text-center">
+        <h2 className="mb-2 font-display text-xl font-semibold text-fg">{title}</h2>
+        <p className="text-sm leading-relaxed text-muted">{body}</p>
+        {detail && <p className="mt-3 text-xs text-muted">{detail}</p>}
+      </div>
+    </div>
+  );
+}

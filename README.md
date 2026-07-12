@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# cv-orman
 
-## Getting Started
+Standalone Next.js page for [sergi.mertsoylu.dev](https://sergi.mertsoylu.dev): the owner's public GitHub repos rendered as trees in a 3D forest.
 
-First, run the development server:
+- **Size** → stars + commits + age  
+- **Color / wilt** → days since last push  
+- **Species** → primary language  
+
+Single-user, single-page. No auth, no DB — live GitHub GraphQL + ISR cache.
+
+## Stack
+
+- Next.js 16 (App Router, Turbopack) + React 19  
+- react-three-fiber / drei / Three.js  
+- Tailwind CSS 4  
+
+## Setup
 
 ```bash
+cp .env.example .env.local
+# fill GITHUB_TOKEN + GITHUB_USERNAME
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Env
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Var | Purpose |
+|-----|---------|
+| `GITHUB_TOKEN` | PAT for GraphQL (classic or fine-grained) |
+| `GITHUB_USERNAME` | Whose public repos become trees |
 
-## Learn More
+Missing either → `/` and `/api/repos` fail with a clear error (not silent empty forest).
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev      # Turbopack dev
+npm run build    # production build (+ typecheck)
+npm run start    # serve production build
+npm run lint     # eslint
+npx tsc --noEmit # typecheck only
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+No test runner. Verify with tsc + lint + build + manual browser check of `/`.
 
-## Deploy on Vercel
+## Deploy (Vercel)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Import this repo on [Vercel](https://vercel.com).  
+2. Project env: `GITHUB_TOKEN`, `GITHUB_USERNAME`.  
+3. Domain: `sergi.mertsoylu.dev` (DNS → Vercel).  
+4. Deploy.  
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`/` revalidates every **3600s** (`revalidate` on the page + `fetch` cache). After first generation, GitHub is not hit every request.
+
+### Production checklist
+
+- [ ] Env vars set in Vercel (Production + Preview if needed)  
+- [ ] Custom domain + HTTPS  
+- [ ] `/` loads forest (or explicit error state if GitHub fails)  
+- [ ] OG card: share `https://sergi.mertsoylu.dev` once  
+- [ ] Main site links to sergi if desired  
+
+## Architecture (short)
+
+```
+lib/github/*     GraphQL fetch + normalize
+lib/forest/*     growth / health / species / layout
+app/page.tsx     Server: fetch → layout → ForestPageClient
+components/renderers/three-3d/   R3F scene
+```
+
+`/api/repos` JSON endpoint exists but the page path does **not** call it — server component fetches directly.
+
+## License
+
+Private portfolio project.
