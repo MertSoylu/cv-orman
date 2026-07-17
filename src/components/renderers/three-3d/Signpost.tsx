@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Billboard, Text } from "@react-three/drei";
-import { type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
+import { type ThreeEvent, useFrame } from "@react-three/fiber";
 import { healthyToWilted } from "./utils";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 
@@ -14,13 +14,8 @@ const TEXT_COLOR = "#f3e6c8";
 const ACCENT_COLOR = "#e0764f";
 const HEALTH_BASE = new THREE.Color("#4f7942");
 
-const LOD_NEAR = 14;
-const LOD_FAR = 30;
-const LOD_HYSTERESIS = 2;
 const HOVER_DAMP_LAMBDA = 3.5;
 const HOVER_SCALE_EXTRA = 0.07;
-
-const _camPos = new THREE.Vector3();
 
 export interface SignpostProps {
   position: [number, number, number];
@@ -32,9 +27,6 @@ export interface SignpostProps {
 
 /** Museum-placard signpost: a wooden post + a camera-facing framed plaque naming the repo, with a small dot echoing the tree's health color. */
 export default function Signpost({ position, label, healthStage, onClick }: SignpostProps) {
-  const camera = useThree((state) => state.camera);
-  const [plaqueVisible, setPlaqueVisible] = useState(true);
-  const plaqueVisibleRef = useRef(true);
   const [pointerHovered, setPointerHovered] = useState(false);
   const plaqueGroupRef = useRef<THREE.Group>(null);
   const accentMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
@@ -42,20 +34,8 @@ export default function Signpost({ position, label, healthStage, onClick }: Sign
   const reducedMotion = usePrefersReducedMotion();
 
   const healthColor = useMemo(() => healthyToWilted(HEALTH_BASE, healthStage), [healthStage]);
-  const posVec = useMemo(() => new THREE.Vector3(...position), [position]);
 
   useFrame((_, delta) => {
-    camera.getWorldPosition(_camPos);
-    const dist = _camPos.distanceTo(posVec);
-
-    const near = LOD_NEAR - LOD_HYSTERESIS;
-    const far = LOD_FAR + LOD_HYSTERESIS;
-    const shouldShow = pointerHovered || (plaqueVisibleRef.current ? dist <= far : dist < near);
-    if (shouldShow !== plaqueVisibleRef.current) {
-      plaqueVisibleRef.current = shouldShow;
-      setPlaqueVisible(shouldShow);
-    }
-
     const target = pointerHovered ? 1 : 0;
     hoverT.current = reducedMotion ? target : THREE.MathUtils.damp(hoverT.current, target, HOVER_DAMP_LAMBDA, delta);
 
@@ -100,9 +80,8 @@ export default function Signpost({ position, label, healthStage, onClick }: Sign
         <meshStandardMaterial color={POST_COLOR} roughness={0.9} />
       </mesh>
 
-      {plaqueVisible && (
-        <Billboard position={[0, 1.98, 0]}>
-          <group ref={plaqueGroupRef} scale={1}>
+      <Billboard position={[0, 1.98, 0]}>
+        <group ref={plaqueGroupRef} scale={1}>
             <mesh>
               <planeGeometry args={[2.34, 0.82]} />
               <meshStandardMaterial color={FRAME_COLOR} roughness={0.85} />
@@ -140,9 +119,8 @@ export default function Signpost({ position, label, healthStage, onClick }: Sign
                 roughness={0.6}
               />
             </mesh>
-          </group>
-        </Billboard>
-      )}
+        </group>
+      </Billboard>
     </group>
   );
 }

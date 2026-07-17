@@ -33,6 +33,10 @@ export interface Tree3DProps {
   onClick: (id: string) => void;
   /** Shared with every other tree's Tree3D and with TrunkInstanceGroup -- single source of truth for "which tree is hovered" so bark (instanced, batched across trees in TrunkInstanceGroup) and foliage (here) pop/glow in sync regardless of which one the pointer actually landed on. */
   hoveredIdRef: MutableRefObject<string | null>;
+  /** When set, the selected tree stays glowing like it's hovered -- click-to-select replaces the old spotlight/halo "burn" with the hover glow. */
+  selectedIdRef: MutableRefObject<string | null>;
+  /** Quality-tier clump count multiplier (1 = species recipe default). >1 pads with jittered clones, <1 thins. */
+  foliageDensity?: number;
 }
 
 /**
@@ -47,7 +51,7 @@ export interface Tree3DProps {
  * clump count/color (wilt-based culling and color jitter), which a shared
  * cross-tree instance would have to fight rather than benefit from.
  */
-export default function Tree3D({ tree, onClick, hoveredIdRef }: Tree3DProps) {
+export default function Tree3D({ tree, onClick, hoveredIdRef, selectedIdRef, foliageDensity = 1 }: Tree3DProps) {
   const swayRef = useRef<THREE.Group>(null);
   const scaleGroupRef = useRef<THREE.Group>(null);
   const hoverT = useRef(0);
@@ -91,7 +95,7 @@ export default function Tree3D({ tree, onClick, hoveredIdRef }: Tree3DProps) {
       .sort((a, b) => a.sortKey - b.sortKey);
     const keepCount = Math.max(1, Math.round(shuffled.length * (1 - wilt * 0.5)));
 
-    return shuffled.slice(0, keepCount).map(({ clump }) => {
+    const instances = shuffled.slice(0, keepCount).map(({ clump }) => {
       const droop = wilt * (0.08 + rand() * 0.22);
       const shrink = 1 - wilt * (0.12 + rand() * 0.16);
       wiltedFoliageColor.getHSL(hsl);
@@ -108,7 +112,30 @@ export default function Tree3D({ tree, onClick, hoveredIdRef }: Tree3DProps) {
         color,
       };
     });
-  }, [build.foliageClumps, wiltedFoliageColor, tree.id, tree.healthStage]);
+
+    // Quality-tier density scaling. <1 thins the tail (already seeded-shuffled
+    // so removal is stable); >1 pads with slightly jittered clones of existing
+    // clumps (still deterministic) -- fuller canopies on strong hardware.
+    const targetCount = Math.max(1, Math.round(instances.length * foliageDensity));
+    if (targetCount < instances.length) {
+      instances.length = targetCount;
+    } else if (targetCount > instances.length && instances.length > 0) {
+      for (let i = instances.length; i < targetCount; i++) {
+        const src = instances[Math.floor(rand() * instances.length)];
+        instances.push({
+          position: [
+            src.position[0] + (rand() - 0.5) * 0.24,
+            src.position[1] + (rand() - 0.5) * 0.18,
+            src.position[2] + (rand() - 0.5) * 0.24,
+          ],
+          rotation: [rand() * Math.PI, rand() * Math.PI, rand() * Math.PI],
+          scale: [src.scale[0] * (0.85 + rand() * 0.3), src.scale[1] * (0.85 + rand() * 0.3), src.scale[2] * (0.85 + rand() * 0.3)],
+          color: src.color.clone(),
+        });
+      }
+    }
+    return instances;
+  }, [build.foliageClumps, wiltedFoliageColor, tree.id, tree.healthStage, foliageDensity]);
 
   // Fallen-leaf ring: the clumps culled from a wilting canopy end up on the
   // ground around the trunk. Skipped entirely while the tree is healthy.
@@ -147,12 +174,13 @@ export default function Tree3D({ tree, onClick, hoveredIdRef }: Tree3DProps) {
       swayRef.current.rotation.x = Math.cos(t * sway.speed * 0.8 + sway.phase * 1.7) * sway.amplitude * 0.6;
     }
 
-    const target = hoveredIdRef.current === tree.id ? 1 : 0;
-    hoverT.current = reducedMotion ? target : THREE.MathUtils.damp(hoverT.current, target, HOVER_DAMP_LAMBDA, delta);
+    const hovered = hoveredIdRef.current === tree.id || selectedIdRef.current === tree.id;
+    const target = hovered ? 1 : 0;
+    if (target !== 0 || hoverT.current > 0.0005) {
+      hoverT.current = reducedMotion ? target : THREE.MathUtils.damp(hoverT.current, target, HOVER_DAMP_LAMBDA, delta);
+    }
 
     if (scaleGroupRef.current) {
-      // Mount intro: staggered grow-in, same curve TrunkInstanceGroup applies
-      // to this tree's bark so crown and trunk sprout as one.
       const intro = reducedMotion ? 1 : introProgress(t - introStart.current, tree.growthScore);
       const s = finalScale * (1 + hoverT.current * HOVER_SCALE_EXTRA) * intro;
       scaleGroupRef.current.scale.setScalar(s);
@@ -188,12 +216,16 @@ export default function Tree3D({ tree, onClick, hoveredIdRef }: Tree3DProps) {
         <group ref={swayRef}>
           {build.foliageGeometry && foliage.length > 0 && (
             <Instances limit={foliage.length} geometry={build.foliageGeometry} castShadow receiveShadow>
+              {/* vertexColors: the clump template bakes a top-light gradient
+                  into its geometry (sunlit crowns, shaded undersides) -- free
+                  per-clump AO. Multiplies with each instance's own color. */}
               <meshStandardMaterial
                 ref={foliageMaterialRef}
                 roughness={0.78}
                 metalness={0}
                 emissive={HOVER_EMISSIVE}
                 emissiveIntensity={0}
+                vertexColors
               />
               {foliage.map((clump, i) => (
                 <Instance key={`f${i}`} position={clump.position} rotation={clump.rotation} scale={clump.scale} color={clump.color} />

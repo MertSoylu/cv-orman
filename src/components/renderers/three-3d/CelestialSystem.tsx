@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { Sky } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import { seededRandom } from "./utils";
 
 // Sky/fog/light values for each of the site's two themes. Instead of being
 // picked instantly by `isDark` (a hard snap on every toggle), both presets are
@@ -117,17 +118,17 @@ function placeBody(group: THREE.Group, factor: number, azimuthDeg: number, cente
   );
 }
 
-/** Fades a body in/out by scaling every child material's baked base opacity. */
-function fadeBody(group: THREE.Group, vis: number) {
+/** Fades a body in/out by scaling every child material's baked base opacity.
+ *  Accepts pre-cached mesh arrays instead of traversing the group tree every frame. */
+function fadeBodyCached(group: THREE.Group, meshes: THREE.Mesh[], vis: number) {
   group.visible = vis > 0.001;
   if (!group.visible) return;
-  group.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      const base = o.userData.baseOpacity as number | undefined;
-      const mat = o.material as THREE.Material & { opacity: number };
-      if (base !== undefined) mat.opacity = base * vis;
-    }
-  });
+  for (let i = 0; i < meshes.length; i++) {
+    const o = meshes[i];
+    const base = o.userData.baseOpacity as number | undefined;
+    const mat = o.material as THREE.Material & { opacity: number };
+    if (base !== undefined) mat.opacity = base * vis;
+  }
 }
 
 export interface CelestialSystemProps {
@@ -140,6 +141,12 @@ export interface CelestialSystemProps {
   fogFar: number;
   /** Shadow map resolution edge length (square). Lowered on low-end devices. */
   shadowMapSize?: number;
+  /** Half-extent of the directional light's shadow camera, derived from the actual tree spread (was a fixed ±40 -- resolution thinned out on wide forests). */
+  shadowExtent?: number;
+  /** Ref callback for the sun's core mesh -- Forest3D feeds it to the GodRays post effect (needs a real Mesh as the light source). */
+  onSunCore?: (mesh: THREE.Mesh | null) => void;
+  /** Ref callback for the moon's core mesh -- GodRays source at night. */
+  onMoonCore?: (mesh: THREE.Mesh | null) => void;
 }
 
 /**
@@ -151,7 +158,16 @@ export interface CelestialSystemProps {
  * rides the sky in light mode; toggling to dark sets it and rises the moon in
  * its place, with every real light interpolating alongside.
  */
-export default function CelestialSystem({ isDark, groundCenter, cameraDistance, fogFar, shadowMapSize = 2048 }: CelestialSystemProps) {
+export default function CelestialSystem({
+  isDark,
+  groundCenter,
+  cameraDistance,
+  fogFar,
+  shadowMapSize = 2048,
+  shadowExtent = 40,
+  onSunCore,
+  onMoonCore,
+}: CelestialSystemProps) {
   const reducedMotion = usePrefersReducedMotion();
   const scene = useThree((s) => s.scene);
 
@@ -161,6 +177,9 @@ export default function CelestialSystem({ isDark, groundCenter, cameraDistance, 
   const dirRef = useRef<THREE.DirectionalLight>(null);
   const sunRef = useRef<THREE.Group>(null);
   const moonRef = useRef<THREE.Group>(null);
+  const starsRef = useRef<THREE.Points>(null);
+  const sunMeshesRef = useRef<THREE.Mesh[] | null>(null);
+  const moonMeshesRef = useRef<THREE.Mesh[] | null>(null);
 
   // Starts already at the correct end state so the very first frame after mount
   // is right -- no day->night flash on a dark-default load.
@@ -176,6 +195,27 @@ export default function CelestialSystem({ isDark, groundCenter, cameraDistance, 
   );
   const sunCoreR = useMemo(() => THREE.MathUtils.clamp(radius * 0.05, 3, 9), [radius]);
   const moonCoreR = sunCoreR * 0.82;
+
+  // Star dome: ~1500 seeded points scattered over the upper hemisphere just
+  // inside the sun/moon radius. Always mounted (opacity is what toggles) so
+  // the day<->night ease can fade them instead of pop-mounting 1500 points.
+  const starPositions = useMemo(() => {
+    const rand = seededRandom("cv-orman:stars");
+    const count = 1500;
+    const positions = new Float32Array(count * 3);
+    const starRadius = radius * 0.92;
+    for (let i = 0; i < count; i++) {
+      // Uniform-ish direction over the upper hemisphere (y > ~0.06 so stars
+      // never sink into the terrain silhouette line).
+      const theta = rand() * Math.PI * 2;
+      const y = 0.06 + rand() * 0.94;
+      const horiz = Math.sqrt(Math.max(0, 1 - y * y));
+      positions[i * 3] = groundCenter[0] + Math.cos(theta) * horiz * starRadius;
+      positions[i * 3 + 1] = y * starRadius;
+      positions[i * 3 + 2] = groundCenter[1] + Math.sin(theta) * horiz * starRadius;
+    }
+    return positions;
+  }, [radius, groundCenter]);
 
   useFrame((_, delta) => {
     const target = isDark ? 0 : 1;
@@ -229,12 +269,30 @@ export default function CelestialSystem({ isDark, groundCenter, cameraDistance, 
 
     // --- Sun rides `f`, moon rides `1 - f`: opposite arcs, opposite fades ---
     if (sunRef.current) {
+      if (!sunMeshesRef.current) {
+        const meshes: THREE.Mesh[] = [];
+        sunRef.current.traverse((o) => { if (o instanceof THREE.Mesh) meshes.push(o); });
+        sunMeshesRef.current = meshes;
+      }
       placeBody(sunRef.current, f, SUN_AZIMUTH_DEG, groundCenter, radius);
-      fadeBody(sunRef.current, THREE.MathUtils.smoothstep(f, 0.02, 0.4));
+      fadeBodyCached(sunRef.current, sunMeshesRef.current, THREE.MathUtils.smoothstep(f, 0.02, 0.4));
     }
     if (moonRef.current) {
+      if (!moonMeshesRef.current) {
+        const meshes: THREE.Mesh[] = [];
+        moonRef.current.traverse((o) => { if (o instanceof THREE.Mesh) meshes.push(o); });
+        moonMeshesRef.current = meshes;
+      }
       placeBody(moonRef.current, 1 - f, MOON_AZIMUTH_DEG, groundCenter, radius);
-      fadeBody(moonRef.current, THREE.MathUtils.smoothstep(1 - f, 0.02, 0.4));
+      fadeBodyCached(moonRef.current, moonMeshesRef.current, THREE.MathUtils.smoothstep(1 - f, 0.02, 0.4));
+    }
+
+    // --- Stars: fade in with nightfall, drift imperceptibly slow ---
+    if (starsRef.current) {
+      const mat = starsRef.current.material as THREE.PointsMaterial;
+      mat.opacity = THREE.MathUtils.smoothstep(1 - f, 0.15, 0.75) * 0.9;
+      starsRef.current.visible = mat.opacity > 0.01;
+      if (!reducedMotion) starsRef.current.rotation.y += delta * 0.004;
     }
   });
 
@@ -269,21 +327,41 @@ export default function CelestialSystem({ isDark, groundCenter, cameraDistance, 
         castShadow
         shadow-mapSize-width={shadowMapSize}
         shadow-mapSize-height={shadowMapSize}
-        shadow-camera-left={-40}
-        shadow-camera-right={40}
-        shadow-camera-top={40}
-        shadow-camera-bottom={-40}
+        shadow-camera-left={-shadowExtent}
+        shadow-camera-right={shadowExtent}
+        shadow-camera-top={shadowExtent}
+        shadow-camera-bottom={-shadowExtent}
         shadow-camera-near={1}
         shadow-camera-far={120}
         shadow-bias={-0.0004}
       />
+
+      {/* Star dome -- visible only at night (opacity driven in useFrame).
+          Fixed pixel size (no attenuation) so stars read as sharp pinpricks
+          at dome distance instead of dissolving into blobs. */}
+      <points ref={starsRef} frustumCulled={false}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[starPositions, 3]} />
+        </bufferGeometry>
+        <pointsMaterial
+          size={1.6}
+          sizeAttenuation={false}
+          color="#dfe8ff"
+          transparent
+          opacity={0}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          fog={false}
+          toneMapped={false}
+        />
+      </points>
 
       {/* Sun: warm core + two additive coronas. Unlit (meshBasicMaterial) and
           fog-exempt so it always reads as a bright disc, never a shaded ball or
           a fogged smudge. `baseOpacity` is what fadeBody scales during a
           transition. */}
       <group ref={sunRef}>
-        <mesh userData={{ baseOpacity: 1 }}>
+        <mesh ref={onSunCore} userData={{ baseOpacity: 1 }}>
           <sphereGeometry args={[sunCoreR, 32, 24]} />
           <meshBasicMaterial color="#fff4c0" toneMapped={false} fog={false} transparent />
         </mesh>
@@ -314,7 +392,7 @@ export default function CelestialSystem({ isDark, groundCenter, cameraDistance, 
       {/* Moon: cooler, tighter glow so it never competes with the sun for
           "brightest thing in the sky". */}
       <group ref={moonRef}>
-        <mesh userData={{ baseOpacity: 1 }}>
+        <mesh ref={onMoonCore} userData={{ baseOpacity: 1 }}>
           <sphereGeometry args={[moonCoreR, 32, 24]} />
           <meshBasicMaterial color="#eef1f8" toneMapped={false} fog={false} transparent />
         </mesh>

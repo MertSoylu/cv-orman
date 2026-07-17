@@ -29,6 +29,8 @@ export interface TrunkInstanceGroupProps {
   onSelect: (id: string) => void;
   /** Shared with every tree's Tree3D -- single source of truth for "which tree is hovered" so bark (here) and foliage (Tree3D) pop in sync regardless of which one the pointer is actually over. */
   hoveredIdRef: MutableRefObject<string | null>;
+  /** Selected tree stays glowing -- mirrors Tree3D's selectedIdRef so bark and foliage stay in sync. */
+  selectedIdRef: MutableRefObject<string | null>;
 }
 
 /**
@@ -54,6 +56,7 @@ export default function TrunkInstanceGroup({
   positions,
   onSelect,
   hoveredIdRef,
+  selectedIdRef,
 }: TrunkInstanceGroupProps) {
   const build = useMemo(() => getSpeciesBuild(species, variantIndex), [species, variantIndex]);
   const reducedMotion = usePrefersReducedMotion();
@@ -105,9 +108,6 @@ export default function TrunkInstanceGroup({
   }).current;
 
   useFrame(({ clock }, delta) => {
-    // Resized here (an effect-equivalent callback, not render) rather than
-    // in the groupTrees useMemo above -- mutating a ref during render trips
-    // the react-hooks/refs lint rule.
     if (hoverT.current.length !== groupTrees.length) {
       hoverT.current = new Float32Array(groupTrees.length);
     }
@@ -116,11 +116,14 @@ export default function TrunkInstanceGroup({
     if (introStart.current === null) introStart.current = t;
     const introElapsed = t - introStart.current;
     const hovered = hoveredIdRef.current;
+    const selected = selectedIdRef.current;
 
     for (const gt of groupTrees) {
-      const target = hovered === gt.tree.id ? 1 : 0;
+      const target = (hovered === gt.tree.id || selected === gt.tree.id) ? 1 : 0;
       const current = hoverT.current[gt.index] ?? 0;
-      hoverT.current[gt.index] = reducedMotion ? target : THREE.MathUtils.damp(current, target, HOVER_DAMP_LAMBDA, delta);
+      if (target !== 0 || current > 0.0005) {
+        hoverT.current[gt.index] = reducedMotion ? target : THREE.MathUtils.damp(current, target, HOVER_DAMP_LAMBDA, delta);
+      }
     }
 
     for (let partIdx = 0; partIdx < build.parts.length; partIdx++) {
@@ -129,22 +132,33 @@ export default function TrunkInstanceGroup({
       const partLocal = partLocalMatrices[partIdx];
 
       for (const gt of groupTrees) {
-        if (reducedMotion) {
-          scratch.sway.identity();
-        } else {
+        const ht = hoverT.current[gt.index] ?? 0;
+        const intro = reducedMotion ? 1 : introProgress(introElapsed, gt.tree.growthScore);
+        const needsSway = !reducedMotion;
+        const needsHoverScale = ht > 0.0005 || intro < 1;
+
+        if (!needsSway && !needsHoverScale) {
+          mesh.setMatrixAt(gt.index, scratch.combined.copy(gt.baseMatrix).multiply(partLocal));
+          continue;
+        }
+
+        if (needsSway) {
           scratch.euler.set(
             Math.cos(t * gt.sway.speed * 0.8 + gt.sway.phase * 1.7) * gt.sway.amplitude * 0.6,
             0,
             Math.sin(t * gt.sway.speed + gt.sway.phase) * gt.sway.amplitude
           );
           scratch.sway.makeRotationFromEuler(scratch.euler);
+        } else {
+          scratch.sway.identity();
         }
-        // Hover pop * mount grow-in, one uniform scale on top of baseMatrix.
-        // introProgress mirrors Tree3D's crown exactly (same curve, same
-        // growthScore stagger) so a tree never sprouts bark-first.
-        const intro = reducedMotion ? 1 : introProgress(introElapsed, gt.tree.growthScore);
-        const hoverScale = (1 + hoverT.current[gt.index] * HOVER_SCALE_EXTRA) * intro;
-        scratch.hoverScale.makeScale(hoverScale, hoverScale, hoverScale);
+
+        if (needsHoverScale) {
+          const hoverScale = (1 + ht * HOVER_SCALE_EXTRA) * intro;
+          scratch.hoverScale.makeScale(hoverScale, hoverScale, hoverScale);
+        } else {
+          scratch.hoverScale.identity();
+        }
 
         scratch.combined.copy(gt.baseMatrix).multiply(scratch.hoverScale).multiply(scratch.sway).multiply(partLocal);
         mesh.setMatrixAt(gt.index, scratch.combined);
@@ -197,7 +211,11 @@ export default function TrunkInstanceGroup({
           onPointerOut={handlePointerOut}
           onClick={handleClick}
         >
-          <meshStandardMaterial color={part.color} roughness={0.9} metalness={0} />
+          {/* vertexColors: bark crevice shading is baked into the geometry's
+              color attribute by applyBarkNoise (limbs without bark carry flat
+              white via ensureColorAttribute), so one shared material per part
+              still shows per-vertex bark depth across every instance. */}
+          <meshStandardMaterial color={part.color} roughness={0.9} metalness={0} vertexColors />
         </instancedMesh>
       ))}
     </>
