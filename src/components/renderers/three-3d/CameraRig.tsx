@@ -8,10 +8,13 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { terrainHeight } from "./terrain/heightfield";
 
 /**
- * Camera behaviour on top of OrbitControls: the selection fly-in, and the guard
- * rails that stop it putting the viewer underground or outside the exhibit.
- * They live together because they are one state machine -- selection owns the
- * camera until it arrives or the user grabs the controls.
+ * Camera behaviour on top of OrbitControls: the selection fly-in, the guard
+ * rails that stop it putting the viewer underground or outside the exhibit, and
+ * the controls' own damping. The first two live together because they are one
+ * state machine -- selection owns the camera until it arrives or the user grabs
+ * the controls. The third is here because it is the only other thing in the
+ * scene that has to be re-derived from the frame delta every frame; see
+ * `CONTROL_DAMP_LAMBDA`.
  *
  * There is no opening move. It was a three-and-a-half second drift from a wide
  * shot down to the trail head, and it cost more than it bought: on a page whose
@@ -23,6 +26,29 @@ import { terrainHeight } from "./terrain/heightfield";
 
 const FLY_DAMP_LAMBDA = 2.2;
 const ARRIVE_EPSILON_SQ = 0.01;
+
+/**
+ * How fast the controls chase the pointer, per *second*.
+ *
+ * OrbitControls' own `dampingFactor` is applied once per `update()` call and
+ * never looks at elapsed time, so the setting is really "fraction of the
+ * remaining move consumed per frame" -- which means the response time it buys
+ * is measured in frames and stretches out exactly as far as the frame rate
+ * falls. At the 0.08 this scene used to pass in, a single drag step measured 90%
+ * complete after 351ms and 99% after 726ms on a machine holding 76fps, and
+ * proportionally worse below that. That is the whole of the "the frame rate is
+ * fine but the camera answers a second late" complaint: the frame rate being
+ * fine is not the same as the frame rate being high, and this knob only ever
+ * cared about the second one.
+ *
+ * Converting a per-frame fraction into a per-second rate is the standard
+ * exponential-decay substitution the rest of this renderer already uses through
+ * `MathUtils.damp`: consume `1 - exp(-lambda * dt)` of the remainder instead of
+ * a fixed slice. The glide is then the same length in seconds at 30fps as at
+ * 144fps. 14/s puts it at 90% in 165ms and 99% in 330ms -- still visibly eased,
+ * no longer a wait.
+ */
+const CONTROL_DAMP_LAMBDA = 14;
 
 /** Where the camera settles when a tree is selected. */
 const FOCUS_DISTANCE = 10;
@@ -109,6 +135,17 @@ export default function CameraRig({
 
     goal.current = { target, position: target.clone().add(approach) };
   }, [focus, camera]);
+
+  // Ahead of drei's own `update()` (which sits at -1), so the factor this frame
+  // is the one that frame's update spends. OrbitControls also calls `update()`
+  // straight out of its pointer handlers, and those get the same figure.
+  useFrame((_, delta) => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.dampingFactor = reducedMotion
+      ? 1
+      : Math.min(1 - Math.exp(-CONTROL_DAMP_LAMBDA * delta), 1);
+  }, -2);
 
   useFrame((_, delta) => {
     const controls = controlsRef.current;

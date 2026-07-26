@@ -146,6 +146,14 @@ export function pathDistance(x: number, z: number): number {
   const from = Math.max(center - TABLE_WINDOW, 0);
   const to = Math.min(center + TABLE_WINDOW, table.length - 1);
 
+  // Scanned entry by entry rather than bracketed with a strided first pass:
+  // for a point well off to one side the lateral term dwarfs the forward one,
+  // so the squared distance follows the centerline's own sine and has more than
+  // one local minimum. A bracket finds the wrong one there, and while the error
+  // is a thousandth of a unit at a distance where the corridor mask has long
+  // since saturated, `decor.ts` does read this against a threshold at 74 -- and
+  // a single filler tree flipping across it reshuffles every one after it,
+  // because they all come off the same seeded stream.
   let bestSq = Infinity;
   for (let i = from; i <= to; i++) {
     const s = -TABLE_HALF_RANGE + i * TABLE_STEP;
@@ -202,16 +210,28 @@ const NARROWS_X = 2.5;
 const STEER_SLOPE = -0.47;
 const STEER_FALLOFF = 15;
 
-/** Signed distance from a world point to the stream centerline. */
-export function streamDistance(x: number, z: number): number {
+/**
+ * Lateral position of the stream centerline at a world X.
+ *
+ * Split out of `streamDistance` because it is the whole cost of it -- three
+ * transcendentals -- and it depends on x alone. Anything that solves the
+ * channel at more than one z along the same x (which `sampleTerrain` does, for
+ * its slope probe) then pays for it once instead of per query.
+ */
+function streamWander(x: number): number {
   const t = (x - NARROWS_X) / STEER_FALLOFF;
-  const wander =
+  return (
     Math.sin((x / STREAM_WANDER_WAVELENGTH) * Math.PI * 2) * STREAM_WANDER_AMPLITUDE +
     Math.sin((x / (STREAM_WANDER_WAVELENGTH * 0.37)) * Math.PI * 2 + 0.9) *
       STREAM_WANDER_AMPLITUDE *
       0.25 +
-    STEER_SLOPE * (x - NARROWS_X) * Math.exp(-t * t);
-  return z - wander;
+    STEER_SLOPE * (x - NARROWS_X) * Math.exp(-t * t)
+  );
+}
+
+/** Signed distance from a world point to the stream centerline. */
+export function streamDistance(x: number, z: number): number {
+  return z - streamWander(x);
 }
 
 /**
@@ -275,10 +295,23 @@ export const TRAIL_WIDTH = 4.4;
 
 /** Height of the ground at a world XZ, before any prop or mesh offset. */
 export function terrainHeight(x: number, z: number): number {
-  return heightFromDistances(x, z, pathDistance(x, z));
+  return heightFromDistances(x, z, pathDistance(x, z), streamWander(x), streamHalfWidth(x));
 }
 
-function heightFromDistances(x: number, z: number, trailDistance: number): number {
+/**
+ * The height solve, with the trail distance and the two stream terms handed in.
+ *
+ * All three are shared between the samples `sampleTerrain` takes, and all three
+ * are what the solve actually costs -- so they are parameters rather than being
+ * re-derived here.
+ */
+function heightFromDistances(
+  x: number,
+  z: number,
+  trailDistance: number,
+  wander: number,
+  halfWidth: number,
+): number {
   // Hills are masked out along the trail, so the exhibit walk stays level while
   // the land still rolls behind the trees.
   const openness = smoothstep(CORRIDOR_INNER, CORRIDOR_OUTER, trailDistance);
@@ -287,7 +320,7 @@ function heightFromDistances(x: number, z: number, trailDistance: number): numbe
 
   let height = hills * HILL_AMPLITUDE * openness + bumps * BUMP_AMPLITUDE * (0.14 + openness * 0.86);
 
-  const toStream = Math.abs(streamDistance(x, z));
+  const toStream = Math.abs(z - wander);
 
   // A watercourse cuts a floodplain, not just a slot. Flattening the land
   // either side of the channel first is what lets one fixed water level read as
@@ -303,7 +336,6 @@ function heightFromDistances(x: number, z: number, trailDistance: number): numbe
   height *= 1 - floodplain * 0.88;
 
   // Then carve the bed, at the local width.
-  const halfWidth = streamHalfWidth(x);
   const q = Math.min(toStream / halfWidth, 1);
 
   // Inside the channel the remaining terrain noise is flattened almost to
@@ -328,20 +360,34 @@ function heightFromDistances(x: number, z: number, trailDistance: number): numbe
 /** Height plus the classification data props and vertex coloring need. */
 export function sampleTerrain(x: number, z: number): TerrainSample {
   const trailDistance = pathDistance(x, z);
-  const height = heightFromDistances(x, z, trailDistance);
+  const wander = streamWander(x);
+  const halfWidth = streamHalfWidth(x);
+  const height = heightFromDistances(x, z, trailDistance, wander, halfWidth);
 
   // Slope is taken with the trail distance held fixed: re-querying it for the
   // two offset samples would triple the cost of building a terrain mesh, and
   // the corridor mask varies far too slowly to matter at this delta.
+  //
+  // The stream terms are functions of x alone, so only the x-offset probe needs
+  // them solved again -- the z-offset probe stands on the same channel as the
+  // point itself. That, plus the two the sample returns, is what takes a terrain
+  // vertex from eight transcendental-heavy channel solves down to four.
   const delta = 0.8;
-  const dx = heightFromDistances(x + delta, z, trailDistance) - height;
-  const dz = heightFromDistances(x, z + delta, trailDistance) - height;
+  const dx =
+    heightFromDistances(
+      x + delta,
+      z,
+      trailDistance,
+      streamWander(x + delta),
+      streamHalfWidth(x + delta),
+    ) - height;
+  const dz = heightFromDistances(x, z + delta, trailDistance, wander, halfWidth) - height;
 
   return {
     height,
     pathDistance: trailDistance,
-    streamDistance: Math.abs(streamDistance(x, z)),
-    streamHalfWidth: streamHalfWidth(x),
+    streamDistance: Math.abs(z - wander),
+    streamHalfWidth: halfWidth,
     slope: Math.min(Math.hypot(dx, dz) / delta, 1),
     variation: fbm(x * 0.028, z * 0.028, 2),
   };

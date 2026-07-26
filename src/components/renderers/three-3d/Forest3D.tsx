@@ -99,6 +99,36 @@ const SPUR_ANCHOR_SETBACK = 0.2;
 /** Clear ground left between a specimen's plot and the kerb, so the walk stays walkable. */
 const PLOT_KERB_GAP = 0.5;
 
+/**
+ * How many frames the scene takes to build, and what lands on each.
+ *
+ * Everything in this exhibit is generated at runtime -- a fifty-thousand-vertex
+ * terrain grid sampled against the heightfield, eight species' worth of branch
+ * systems, several thousand rejection-sampled ground-cover placements, and the
+ * entire texture set drawn from noise. Mounted in one pass that is a single
+ * uninterruptible task, and it measured the best part of a second: the tab stops
+ * answering the pointer, the loading indicator stops turning, and the scene
+ * arrives all at once after a hang. The work is the work -- but *when* it runs
+ * is a choice, and running it in one block is the choice that reads as broken.
+ *
+ * Split across frames the total is the same, and the browser gets to paint and
+ * drain its input queue between the pieces. The stages follow the order the
+ * exhibit itself is set out in -- the ground and the light, then the walk
+ * through it, then the specimens standing beside the walk, then the cover
+ * rejection-sampled against all of it -- which is also, not by coincidence, the
+ * order of what depends on what. The split points are chosen so the two most
+ * expensive pieces never land on the same frame: the terrain grid and its
+ * ground textures on one, the eight species' branch systems and their bark on
+ * another. Nobody sees the half-built frames -- the page's loading overlay
+ * stays up until the last stage has rendered (`onReady` fires from
+ * `SceneBuild`, not from the `Canvas`'s `onCreated`).
+ */
+const STAGE_GROUND = 0;
+const STAGE_WALK = 1;
+const STAGE_SPECIMENS = 2;
+const STAGE_COVER = 3;
+const SCENE_STAGES = 4;
+
 export interface Forest3DProps {
   trees: PlacedTreeData[];
   onSelect: (id: string) => void;
@@ -117,6 +147,9 @@ export default function Forest3D({ trees, onSelect, selectedId = null, isDark, o
   const hoveredIdRef = useRef<string | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
+
+  // How much of the scene has been mounted so far -- see `SCENE_STAGES`.
+  const [stage, setStage] = useState(STAGE_GROUND);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -307,28 +340,34 @@ export default function Forest3D({ trees, onSelect, selectedId = null, isDark, o
    */
   const markerPlacements = useMemo<TreeMarkerPlacement[]>(
     () =>
-      stations.map(({ tree, s, side, halfWidth, reach, tangent }) => {
-        const world = positions.get(tree.id) ?? ([0, 0, 0] as [number, number, number]);
-        const metrics = getTreeMetrics(tree, preset.foliageDensity);
-        const radius = THREE.MathUtils.clamp(metrics.spread * 0.62, 1.15, 2.6);
+      // Held back with the rest of the exhibit stage: `getTreeMetrics` is what
+      // first builds a species' branch system, so measuring a plot is what pays
+      // for the geometry, and leaving this ungated puts that cost back on the
+      // first frame however carefully the meshes themselves are staged.
+      stage < STAGE_SPECIMENS
+        ? []
+        : stations.map(({ tree, s, side, halfWidth, reach, tangent }) => {
+            const world = positions.get(tree.id) ?? ([0, 0, 0] as [number, number, number]);
+            const metrics = getTreeMetrics(tree, preset.foliageDensity);
+            const radius = THREE.MathUtils.clamp(metrics.spread * 0.62, 1.15, 2.6);
 
-        const toKerb = reach - (halfWidth + KERB_CLEARANCE);
-        const anchor = pathOffsetPoint(
-          s,
-          side * (halfWidth + KERB_CLEARANCE + SPUR_ANCHOR_SETBACK) * PLANE_SCALE,
-        );
+            const toKerb = reach - (halfWidth + KERB_CLEARANCE);
+            const anchor = pathOffsetPoint(
+              s,
+              side * (halfWidth + KERB_CLEARANCE + SPUR_ANCHOR_SETBACK) * PLANE_SCALE,
+            );
 
-        return {
-          id: tree.id,
-          position: world,
-          yaw: Math.atan2(tangent.x, tangent.y),
-          halfAcross: THREE.MathUtils.clamp(radius, 0.8, Math.max(0.8, toKerb - PLOT_KERB_GAP)),
-          halfAlong: radius * 1.4,
-          towardTrail: side,
-          spurAnchor: [anchor.x / PLANE_SCALE, anchor.y / PLANE_SCALE],
-        };
-      }),
-    [stations, positions, preset.foliageDensity],
+            return {
+              id: tree.id,
+              position: world,
+              yaw: Math.atan2(tangent.x, tangent.y),
+              halfAcross: THREE.MathUtils.clamp(radius, 0.8, Math.max(0.8, toKerb - PLOT_KERB_GAP)),
+              halfAlong: radius * 1.4,
+              towardTrail: side,
+              spurAnchor: [anchor.x / PLANE_SCALE, anchor.y / PLANE_SCALE],
+            };
+          }),
+    [stage, stations, positions, preset.foliageDensity],
   );
 
   const selectionFocus = useMemo<SelectionFocusPoint | null>(() => {
@@ -362,10 +401,10 @@ export default function Forest3D({ trees, onSelect, selectedId = null, isDark, o
           debug.__forestState = state;
           debug.__forestControls = controlsRef;
         }
-        onReady?.();
       }}
     >
       <Suspense fallback={null}>
+        {/* --- stage 0: the ground and the light ---------------------------- */}
         <Atmosphere
           isDark={isDark}
           center={scene.terrainCenter}
@@ -384,71 +423,89 @@ export default function Forest3D({ trees, onSelect, selectedId = null, isDark, o
           center={scene.terrainCenter}
           segments={preset.terrainSegments}
         />
-        <Trail sStart={scene.sStart} sEnd={scene.sEnd} />
-        <Water
-          extent={scene.waterExtent}
-          skyHorizon={skyState.horizon}
-          skyZenith={skyState.zenith}
-          sunDirection={skyState.sunDirection}
-          sunColor={skyState.sunColor}
-        />
+        {/* --- stage 1: the walk through it --------------------------------- */}
+        {stage >= STAGE_WALK && (
+          <>
+            <Trail sStart={scene.sStart} sEnd={scene.sEnd} />
 
-        {preset.groundFog && (
-          <GroundFog
-            size={scene.terrainSize}
-            center={scene.terrainCenter}
-            isDark={isDark}
-            reducedMotion={reducedMotion}
-          />
+            <Water
+              extent={scene.waterExtent}
+              skyHorizon={skyState.horizon}
+              skyZenith={skyState.zenith}
+              sunDirection={skyState.sunDirection}
+              sunColor={skyState.sunColor}
+            />
+
+            <Gateway marks={scene.gateMarks} isDark={isDark} />
+
+            <Plaques placements={plaquePlacements} onSelect={onSelect} hoveredIdRef={hoveredIdRef} />
+          </>
         )}
 
-        <Undergrowth
-          bounds={scene.bounds}
-          sStart={scene.sStart}
-          sEnd={scene.sEnd}
-          grassCount={preset.grassCount}
-          detailCount={preset.detailCount}
-          plots={markerPlacements}
-          isDark={isDark}
-          reducedMotion={reducedMotion}
-        />
+        {/* --- stage 2: the specimens standing beside it -------------------- */}
+        {stage >= STAGE_SPECIMENS && (
+          <>
+            <TreeField
+              trees={trees}
+              positions={positions}
+              onSelect={onSelect}
+              hoveredIdRef={hoveredIdRef}
+              selectedIdRef={selectedIdRef}
+              foliageDensity={preset.foliageDensity}
+              detailedLeaves={preset.detailedLeaves && effects.detailedLeaves}
+              reducedMotion={reducedMotion}
+              decorCount={preset.decorTrees}
+              decorBounds={scene.bounds}
+            />
 
-        <Waterside
-          extent={scene.waterExtent}
-          reedCount={preset.reedCount}
-          waterDetail={preset.waterDetail}
-          isDark={isDark}
-          reducedMotion={reducedMotion}
-        />
+            <TreeMarkers placements={markerPlacements} isDark={isDark} />
 
-        <TreeField
-          trees={trees}
-          positions={positions}
-          onSelect={onSelect}
-          hoveredIdRef={hoveredIdRef}
-          selectedIdRef={selectedIdRef}
-          foliageDensity={preset.foliageDensity}
-          detailedLeaves={preset.detailedLeaves && effects.detailedLeaves}
-          reducedMotion={reducedMotion}
-          decorCount={preset.decorTrees}
-          decorBounds={scene.bounds}
-        />
+            <HoverHalo positions={positions} hoveredIdRef={hoveredIdRef} selectedIdRef={selectedIdRef} />
+          </>
+        )}
 
-        <TreeMarkers placements={markerPlacements} isDark={isDark} />
+        {/* --- stage 3: the cover, rejection-sampled against all of the above */}
+        {stage >= STAGE_COVER && (
+          <>
+            {preset.groundFog && (
+              <GroundFog
+                size={scene.terrainSize}
+                center={scene.terrainCenter}
+                isDark={isDark}
+                reducedMotion={reducedMotion}
+              />
+            )}
 
-        <Gateway marks={scene.gateMarks} isDark={isDark} />
+            <Undergrowth
+              bounds={scene.bounds}
+              sStart={scene.sStart}
+              sEnd={scene.sEnd}
+              grassCount={preset.grassCount}
+              detailCount={preset.detailCount}
+              plots={markerPlacements}
+              isDark={isDark}
+              reducedMotion={reducedMotion}
+            />
 
-        <Plaques placements={plaquePlacements} onSelect={onSelect} hoveredIdRef={hoveredIdRef} />
+            <Waterside
+              extent={scene.waterExtent}
+              reedCount={preset.reedCount}
+              waterDetail={preset.waterDetail}
+              isDark={isDark}
+              reducedMotion={reducedMotion}
+            />
 
-        <HoverHalo positions={positions} hoveredIdRef={hoveredIdRef} selectedIdRef={selectedIdRef} />
+            <Motes
+              count={preset.moteCount}
+              bounds={scene.bounds}
+              isDark={isDark}
+              reducedMotion={reducedMotion}
+              pixelRatio={preset.dpr[1]}
+            />
+          </>
+        )}
 
-        <Motes
-          count={preset.moteCount}
-          bounds={scene.bounds}
-          isDark={isDark}
-          reducedMotion={reducedMotion}
-          pixelRatio={preset.dpr[1]}
-        />
+        <SceneBuild stage={stage} onAdvance={setStage} onComplete={onReady} />
 
         <CameraRig
           controlsRef={controlsRef}
@@ -465,8 +522,12 @@ export default function Forest3D({ trees, onSelect, selectedId = null, isDark, o
           maxDistance={scene.maxDistance}
           enablePan
           maxPolarAngle={Math.PI / 2 - 0.03}
+          // `dampingFactor` is deliberately not set here. It is a per-*frame*
+          // fraction, so a literal makes the camera's response time a function
+          // of the frame rate; `CameraRig` re-derives it from the frame delta
+          // instead, which is the only way the glide is the same length in
+          // seconds on every machine.
           enableDamping
-          dampingFactor={0.08}
         />
 
         {/* N8AO grounds trunks and props with contact occlusion, god rays shaft
@@ -517,6 +578,50 @@ export default function Forest3D({ trees, onSelect, selectedId = null, isDark, o
       </Suspense>
     </Canvas>
   );
+}
+
+/**
+ * Walks the scene up one stage per rendered frame, and reports when the last one
+ * is on screen.
+ *
+ * Advancing from a frame callback rather than from an effect is what makes the
+ * split worth anything: the stage that has just mounted is guaranteed to have
+ * been *drawn* before the next one is asked for, so the browser has had a paint
+ * and an input-queue drain in between. Advancing from a `useEffect` chain
+ * instead would run all three builds back to back inside the same commit and
+ * hand the user exactly the block this is here to break up.
+ *
+ * `onComplete` is deliberately fired from here rather than from the `Canvas`'s
+ * `onCreated`. `onCreated` runs before a single object exists in the scene, so
+ * the page's loading overlay used to come down over an empty valley and let the
+ * build's frames show through; holding it until the last stage has rendered
+ * means the reveal is of a finished exhibit.
+ */
+function SceneBuild({
+  stage,
+  onAdvance,
+  onComplete,
+}: {
+  stage: number;
+  onAdvance: (stage: number) => void;
+  onComplete?: () => void;
+}) {
+  const settled = useRef(0);
+
+  useFrame(() => {
+    if (stage < SCENE_STAGES - 1) {
+      onAdvance(stage + 1);
+      return;
+    }
+    // Frame callbacks run *before* the draw, so the frame this one is called on
+    // is the first that will contain the last stage rather than the first that
+    // does. One more, and the overlay comes down over something already on
+    // screen.
+    settled.current += 1;
+    if (settled.current === 2) onComplete?.();
+  });
+
+  return null;
 }
 
 /** World-space point sitting on the terrain. */
