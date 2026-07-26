@@ -1,4 +1,12 @@
-export type Species = "oak" | "pine" | "sakura" | "palm" | "birch" | "generic";
+export type Species =
+  | "oak"
+  | "pine"
+  | "sakura"
+  | "palm"
+  | "birch"
+  | "willow"
+  | "redwood"
+  | "generic";
 
 export interface TreeData {
   id: string;

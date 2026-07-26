@@ -43,12 +43,43 @@ export const HEALTH = {
 } as const;
 
 export const LAYOUT = {
-  /** Distance between rows along the exhibit path (plane y-axis). */
-  PATH_SPACING: 175,
-  /** Base sideways distance from path center (plane x=0) to a tree's row. */
-  PATH_LATERAL_BASE: 72,
-  /** Extra sideways distance, scaled by growthScore -- bigger trees stand further out. */
-  PATH_LATERAL_GROWTH: 40,
-  /** +/- random jitter on top of the base+growth offset, keeps the row from looking robotic. */
-  PATH_LATERAL_JITTER: 18,
+  /**
+   * Distance between stations, measured along the path's forward axis.
+   *
+   * A "station" is one point on the walk with a specimen on each side. Both
+   * trees of a station stand at exactly this `s` -- see `forest/layout.ts` for
+   * why the placement carries no positional noise at all.
+   */
+  PATH_SPACING: 190,
+  /** Sideways distance from the centerline to a specimen standing in the near bay. */
+  PATH_LATERAL_BASE: 100,
+  /**
+   * Extra setback for a specimen in the far bay. Large trees are stepped one
+   * bay back so their canopies clear the walk -- a discrete step rather than a
+   * continuous function of growthScore, so the two files still read as lines.
+   */
+  PATH_LATERAL_BAY: 36,
+  /** growthScore at/above which a specimen is planted in the far bay. */
+  PATH_BAY_THRESHOLD: 0.5,
+  /**
+   * Serpentine centerline shape, in plane units. The path is x = f(s) where s
+   * is forward distance: two out-of-phase sine waves, so it reads as a natural
+   * winding trail rather than one regular S. Amplitudes stay well under
+   * PATH_LATERAL_BASE * 2 so the two tree files never cross the centerline.
+   *
+   * What actually sets these numbers is the **maximum slope**, `A * 2pi / L`
+   * summed over both waves -- the angle the walk can swing away from the
+   * forward axis. The earlier values reached 0.82, or 39 degrees, and that is a
+   * switchback rather than a walk: standing anywhere on it you could see one
+   * station ahead before the trail left the frame entirely, so the avenue never
+   * read as an avenue and the gate at the trail head sat off at the edge of the
+   * frustum. These stay under 0.4 (about 22 degrees), which keeps three or four
+   * stations in view down the aisle while still giving the top-down a lazy S.
+   */
+  CURVE_PRIMARY_AMPLITUDE: 115,
+  CURVE_PRIMARY_WAVELENGTH: 1900,
+  CURVE_SECONDARY_AMPLITUDE: 24,
+  CURVE_SECONDARY_WAVELENGTH: 690,
+  /** Phase offset of the secondary wave, so the two never peak together. */
+  CURVE_SECONDARY_PHASE: 1.7,
 } as const;

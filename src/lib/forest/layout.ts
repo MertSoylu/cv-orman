@@ -1,36 +1,31 @@
 import { LAYOUT } from "@/lib/config";
+import { computePathSpan, pathOffsetPoint } from "@/lib/forest/path";
 import type { TreeData } from "@/lib/forest/treeData";
 
-function fnv1aHash(str: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-function mulberry32(seed: number): () => number {
-  let a = seed;
-  return function rng() {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /**
- * Deterministic exhibit-gallery layout: trees line a straight central path
- * (plane x=0), alternating left/right in pairs as they walk back along the
- * y-axis -- like paired plaques down a museum avenue, not a scattered forest.
- * Sideways offset grows with growthScore so bigger repos stand further from
- * the path, and a seeded jitter on top keeps rows from looking robotic.
+ * Deterministic placement along the winding exhibit trail defined in
+ * `lib/forest/path.ts`: trees walk the centerline two per **station**, one to
+ * each side, offset sideways along the curve's own normal so the two files bend
+ * with the trail instead of staying parallel to a fixed axis.
  *
- * Trees are placed in sorted-id order so the same repo set always produces
- * the same layout; the whole path is centered on the origin so the renderer
- * can place camera/ground bounds around (0,0) without a fixed plane size.
+ * The placement carries **no positional noise at all**, and that is the point.
+ * An earlier version jittered both offsets so pairs would not "line up like
+ * fence posts" -- which is the right instinct for a wild wood and the wrong one
+ * for an exhibit. A botanical garden plants its specimen avenue on a grid, and
+ * the regularity is what tells a visitor the planting was *chosen*. Here the
+ * two trees of a station stand exactly opposite each other at exactly the same
+ * setback, so walking the trail gives a steady left-right cadence; all the
+ * variation the eye needs comes from species, canopy shape and size, which
+ * differ far more than any jitter could.
+ *
+ * The one concession to the trees themselves is the bay: a large specimen is
+ * stepped one discrete bay further back so its canopy clears the walk. A
+ * discrete step keeps the files reading as lines; the continuous
+ * growthScore-scaled offset it replaced did not.
+ *
+ * Placement is in sorted-id order and the span is centered on the origin, so
+ * the same repo set always produces the same forest and the renderer can size
+ * its ground/camera from the actual spread without a fixed plane size.
  */
 export function computeForestLayout(
   trees: TreeData[],
@@ -43,24 +38,17 @@ export function computeForestLayout(
     return result;
   }
 
-  const seed = fnv1aHash(sorted.map((t) => t.id).join(","));
-  const rng = mulberry32(seed);
+  const span = computePathSpan(sorted.length);
 
   sorted.forEach((tree, index) => {
     const side = index % 2 === 0 ? -1 : 1;
-    const row = Math.floor(index / 2);
-    const lateralJitter = (rng() - 0.5) * 2 * LAYOUT.PATH_LATERAL_JITTER;
-    const lateral =
-      side * (LAYOUT.PATH_LATERAL_BASE + tree.growthScore * LAYOUT.PATH_LATERAL_GROWTH) +
-      lateralJitter;
-    result.set(tree.id, { x: lateral, y: row * LAYOUT.PATH_SPACING });
-  });
+    const station = Math.floor(index / 2);
 
-  const rowCount = Math.ceil(sorted.length / 2);
-  const pathLength = Math.max(rowCount - 1, 0) * LAYOUT.PATH_SPACING;
-  for (const [id, pos] of result) {
-    result.set(id, { x: pos.x, y: pos.y - pathLength / 2 });
-  }
+    const s = span.start + station * LAYOUT.PATH_SPACING;
+    const bay = tree.growthScore >= LAYOUT.PATH_BAY_THRESHOLD ? LAYOUT.PATH_LATERAL_BAY : 0;
+
+    result.set(tree.id, pathOffsetPoint(s, side * (LAYOUT.PATH_LATERAL_BASE + bay)));
+  });
 
   return result;
 }
