@@ -128,6 +128,16 @@
     @apply mx-auto w-full max-w-6xl px-5 sm:px-7 lg:px-8;
   }
 
+  /* The scene fills exactly what the browser is actually showing. `svh` is the
+     load-bearing part: on mobile `vh` is measured against the viewport with the
+     URL bar retracted, so `100vh` renders a canvas taller than the screen and
+     pushes the bottom overlay off it. `vh` stays as the fallback line. */
+  .scene-viewport {
+    height: calc(100vh - 4rem);
+    height: calc(100svh - 4rem);
+    min-height: 20rem;
+  }
+
   .eyebrow {
     @apply inline-flex items-center gap-2 text-xs font-semibold uppercase text-muted;
     letter-spacing: 0.2em;

@@ -8,6 +8,7 @@ import TreeDetailPanel from "./TreeDetailPanel";
 import ErrorBoundary from "./ErrorBoundary";
 import RepoFallbackList from "./RepoFallbackList";
 import SceneLoadingIndicator from "./SceneLoadingIndicator";
+import { IconChevron } from "./icons";
 import { useTreeSelection } from "@/hooks/useTreeSelection";
 import { useLanguage } from "@/context/LanguageContext";
 import { useDarkMode } from "@/context/DarkModeContext";
@@ -36,6 +37,8 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
   const { isDark } = useDarkMode();
   const { selectedId, select, clear } = useTreeSelection();
   const [sceneReady, setSceneReady] = useState(false);
+  // Only consulted below `sm` -- the legend is always open on wider screens.
+  const [legendOpen, setLegendOpen] = useState(false);
   const selectedTree = trees.find((tree) => tree.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -81,7 +84,7 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
             )}
           </>
         ) : (
-          <section className="relative w-full overflow-hidden" style={{ height: "max(560px, calc(100vh - 4rem))" }}>
+          <section className="scene-viewport relative w-full overflow-hidden">
             {!sceneReady && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-canvas" role="status" aria-live="polite">
                 <SceneLoadingIndicator />
@@ -100,23 +103,27 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
             </ErrorBoundary>
 
             {/* Soft readability wash behind the exhibit label. */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-black/25 to-transparent" aria-hidden="true" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent sm:h-44" aria-hidden="true" />
 
-            {/* Exhibit label: the hero floats over the garden like a museum wall text. */}
+            {/* Exhibit label: the hero floats over the garden like a museum wall
+                text. On a phone the wall text is cut back to badge + name +
+                figures -- the prose reads as caption on a desktop and as a
+                blindfold on a 390px screen, so it stays in the a11y tree
+                (`sr-only`) and out of the frame until there is room for it. */}
             <div className="pointer-events-none absolute inset-x-0 top-0">
-              <div className="container-wide pt-5 sm:pt-8">
-                <div className="pointer-events-auto max-w-md rounded-2xl border p-5 shadow-lg backdrop-blur-md sm:p-6" style={GLASS_STYLE}>
-                  <span className="eyebrow mb-2">
+              <div className="container-wide pt-3 sm:pt-8">
+                <div className="pointer-events-auto max-w-md rounded-2xl border p-3.5 shadow-lg backdrop-blur-md sm:p-6" style={GLASS_STYLE}>
+                  <span className="eyebrow mb-1 sm:mb-2">
                     <span className="relative flex h-2 w-2" aria-hidden="true">
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
                       <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
                     </span>
                     {t("hero.badge")}
                   </span>
-                  <h1 className="mb-1.5 font-display text-3xl font-semibold text-fg sm:text-4xl">{t("hero.title")}</h1>
-                  <p className="text-sm leading-relaxed text-muted">{t("hero.subtitle")}</p>
+                  <h1 className="mb-0.5 font-display text-2xl font-semibold text-fg sm:mb-1.5 sm:text-4xl">{t("hero.title")}</h1>
+                  <p className="sr-only text-sm leading-relaxed text-muted sm:not-sr-only sm:block">{t("hero.subtitle")}</p>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="mt-2.5 flex flex-wrap gap-1.5 sm:mt-4 sm:gap-2">
                     <StatChip value={trees.length.toLocaleString(locale)} label={t("stats.trees")} />
                     <StatChip value={stats.healthy.toLocaleString(locale)} label={t("stats.healthy")} />
                     <StatChip value={stats.stars.toLocaleString(locale)} label={t("stats.stars")} />
@@ -125,22 +132,47 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
               </div>
             </div>
 
-            {/* Legend + interaction hint pinned to the bottom edge. */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-4">
-              <div className="container-wide flex flex-wrap items-end justify-between gap-3">
-                <div className="pointer-events-auto rounded-xl border px-4 py-3 backdrop-blur-md" style={GLASS_STYLE}>
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted">{t("legend.title")}</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-medium text-fg">{t("legend.healthy")}</span>
-                    <span className="h-1.5 w-28 rounded-full sm:w-36" style={{ background: HEALTH_RAMP }} aria-hidden="true" />
-                    <span className="text-[11px] font-medium text-fg">{t("legend.wilted")}</span>
+            {/* Legend + interaction hint pinned to the bottom edge. The legend
+                is the taller of the two overlays and the species list is the
+                bulk of it, so on a phone it folds down to its own title bar and
+                opens on tap; on `sm` and up it is always open and the toggle is
+                gone, since there the card never crowded the scene. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 sm:bottom-4">
+              <div className="container-wide flex flex-wrap items-end justify-between gap-2 sm:gap-3">
+                <div className="pointer-events-auto max-w-full rounded-xl border backdrop-blur-md" style={GLASS_STYLE}>
+                  <button
+                    type="button"
+                    onClick={() => setLegendOpen((open) => !open)}
+                    aria-expanded={legendOpen}
+                    aria-controls="forest-legend"
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted sm:hidden"
+                  >
+                    {t("legend.title")}
+                    <IconChevron className={`h-3 w-3 transition-transform ${legendOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  <p className="hidden px-4 pt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted sm:block">
+                    {t("legend.title")}
+                  </p>
+
+                  <div id="forest-legend" className={`${legendOpen ? "block" : "hidden"} px-4 pb-3 pt-1 sm:block sm:pt-2`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-medium text-fg">{t("legend.healthy")}</span>
+                      <span className="h-1.5 w-28 rounded-full sm:w-36" style={{ background: HEALTH_RAMP }} aria-hidden="true" />
+                      <span className="text-[11px] font-medium text-fg">{t("legend.wilted")}</span>
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-muted">{t("legend.health")}</p>
+                    <p className="text-[11px] text-muted">{t("legend.size")}</p>
+                    <p className="mt-1.5 text-[11px] text-muted">{t("legend.species")}</p>
                   </div>
-                  <p className="mt-1.5 text-[11px] text-muted">{t("legend.health")}</p>
-                  <p className="text-[11px] text-muted">{t("legend.size")}</p>
-                  <p className="mt-1.5 text-[11px] text-muted">{t("legend.species")}</p>
                 </div>
 
-                <p className="rounded-full border px-3.5 py-1.5 text-xs text-muted backdrop-blur-md" style={GLASS_STYLE}>
+                {/* Every visual utility here is `sm:`-prefixed on purpose:
+                    `not-sr-only` resets padding, and an unprefixed `px-*` sorts
+                    *before* a prefixed reset, so the pill loses its padding. */}
+                <p
+                  className="sr-only sm:not-sr-only sm:block sm:rounded-full sm:border sm:px-3.5 sm:py-1.5 sm:text-xs sm:text-muted sm:backdrop-blur-md"
+                  style={GLASS_STYLE}
+                >
                   {t("hero.hint")}
                 </p>
               </div>
