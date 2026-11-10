@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
-import Forest3D from "./renderers/three-3d/Forest3D";
+import VoxelForest from "./renderers/voxel/VoxelForest";
 import TreeDetailPanel from "./TreeDetailPanel";
 import ErrorBoundary from "./ErrorBoundary";
 import RepoFallbackList from "./RepoFallbackList";
@@ -21,9 +21,9 @@ const GLASS_STYLE: React.CSSProperties = {
   borderColor: "rgb(var(--line) / 0.14)",
 };
 
-// Same greens/browns the 3D foliage wilts through -- the legend bar is a
+// Same greens/browns the voxel foliage wilts through -- the legend bar is a
 // truthful sample of the scene's health ramp, not a decorative gradient.
-const HEALTH_RAMP = "linear-gradient(90deg, #4f7942, #d9a441, #8a5a2b)";
+const HEALTH_RAMP = "linear-gradient(90deg, #6fae4f, #d9a441, #c8762b, #8a5a2b)";
 
 export interface ForestPageClientProps {
   trees: PlacedTreeData[];
@@ -99,11 +99,8 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
                 </div>
               }
             >
-              <Forest3D trees={trees} onSelect={select} selectedId={selectedId} isDark={isDark} onReady={() => setSceneReady(true)} />
+              <VoxelForest trees={trees} onSelect={select} selectedId={selectedId} isDark={isDark} onReady={() => setSceneReady(true)} />
             </ErrorBoundary>
-
-            {/* Soft readability wash behind the exhibit label. */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/25 to-transparent sm:h-44" aria-hidden="true" />
 
             {/* Exhibit label: the hero floats over the garden like a museum wall
                 text. On a phone the wall text is cut back to badge + name +
@@ -139,7 +136,7 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
                 gone, since there the card never crowded the scene. */}
             <div className="pointer-events-none absolute inset-x-0 bottom-3 sm:bottom-4">
               <div className="container-wide flex flex-wrap items-end justify-between gap-2 sm:gap-3">
-                <div className="pointer-events-auto max-w-full rounded-xl border backdrop-blur-md" style={GLASS_STYLE}>
+                <div className="pointer-events-auto max-w-full rounded-xl border backdrop-blur-md sm:max-w-sm" style={GLASS_STYLE}>
                   <button
                     type="button"
                     onClick={() => setLegendOpen((open) => !open)}
@@ -162,6 +159,7 @@ export default function ForestPageClient({ trees, error }: ForestPageClientProps
                     </div>
                     <p className="mt-1.5 text-[11px] text-muted">{t("legend.health")}</p>
                     <p className="text-[11px] text-muted">{t("legend.size")}</p>
+                    <p className="text-[11px] text-muted">{t("legend.order")}</p>
                     <p className="mt-1.5 text-[11px] text-muted">{t("legend.species")}</p>
                   </div>
                 </div>

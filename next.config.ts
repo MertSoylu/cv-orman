@@ -9,7 +9,7 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
   },
-  // No strict CSP: inline theme-init script + WebGL/R3F. Frame-ancestors covered by XFO.
+  // No strict CSP: inline theme-init script + WebGL. Frame-ancestors covered by XFO.
 ];
 
 const nextConfig: NextConfig = {

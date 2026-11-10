@@ -1,17 +1,15 @@
 import { LAYOUT } from "@/lib/config";
 
 /**
- * The exhibit's winding centerline, shared by the data layer and the renderer.
+ * The exhibit walk: an Archimedean spiral, as pure math with no three.js.
  *
- * `lib/forest/layout.ts` walks this curve to place trees; the renderer walks
- * the same curve to lay the path ribbon, flatten the terrain corridor, and
- * rail the camera. Both must agree exactly, so the curve lives here as pure
- * math (no three.js, runs on the server) rather than being reinvented twice.
+ * `lib/forest/layout.ts` walks it to plant trees; the voxel renderer walks the
+ * same curve to pave the path, hang lanterns and carve the stream that crosses
+ * it. There is exactly one definition so the two can never disagree.
  *
- * Parametrization is by forward distance `s` along the plane's y-axis, with
- * the lateral offset an analytic function of it -- so tangent/normal are
- * closed-form, and "nearest point on the path" is a cheap 1-D search rather
- * than a spline projection.
+ * The spiral is parametrized by angle `theta` (radius grows `SPIRAL_LOOP_GAP`
+ * per turn). Coordinates are plane coordinates `{x, y}`; the renderer maps
+ * `y` onto world Z.
  */
 
 export interface Vec2 {
@@ -19,115 +17,96 @@ export interface Vec2 {
   y: number;
 }
 
-/** Lateral offset of the centerline at forward distance `s`, in plane units. */
-export function pathOffsetAt(s: number): number {
-  return (
-    Math.sin((s / LAYOUT.CURVE_PRIMARY_WAVELENGTH) * Math.PI * 2) * LAYOUT.CURVE_PRIMARY_AMPLITUDE +
-    Math.sin((s / LAYOUT.CURVE_SECONDARY_WAVELENGTH) * Math.PI * 2 + LAYOUT.CURVE_SECONDARY_PHASE) *
-      LAYOUT.CURVE_SECONDARY_AMPLITUDE
-  );
+const GROWTH_PER_RADIAN = LAYOUT.SPIRAL_LOOP_GAP / (Math.PI * 2);
+
+export function spiralRadiusAt(theta: number): number {
+  return LAYOUT.SPIRAL_START_RADIUS + GROWTH_PER_RADIAN * theta;
 }
 
-/** d(offset)/ds -- analytic derivative of `pathOffsetAt`. */
-export function pathSlopeAt(s: number): number {
-  const k1 = (Math.PI * 2) / LAYOUT.CURVE_PRIMARY_WAVELENGTH;
-  const k2 = (Math.PI * 2) / LAYOUT.CURVE_SECONDARY_WAVELENGTH;
-  return (
-    Math.cos(s * k1) * LAYOUT.CURVE_PRIMARY_AMPLITUDE * k1 +
-    Math.cos(s * k2 + LAYOUT.CURVE_SECONDARY_PHASE) * LAYOUT.CURVE_SECONDARY_AMPLITUDE * k2
-  );
+export function spiralPointAt(theta: number): Vec2 {
+  const r = spiralRadiusAt(theta);
+  return { x: Math.cos(theta) * r, y: Math.sin(theta) * r };
 }
 
-/** Centerline point at forward distance `s`. */
-export function pathPointAt(s: number): Vec2 {
-  return { x: pathOffsetAt(s), y: s };
+/** Unit tangent, pointing outward along the walk (toward the gate). */
+export function spiralTangentAt(theta: number): Vec2 {
+  const r = spiralRadiusAt(theta);
+  const dx = GROWTH_PER_RADIAN * Math.cos(theta) - r * Math.sin(theta);
+  const dy = GROWTH_PER_RADIAN * Math.sin(theta) + r * Math.cos(theta);
+  const len = Math.hypot(dx, dy);
+  return { x: dx / len, y: dy / len };
 }
 
-/** Unit tangent (direction of travel) at `s`. */
-export function pathTangentAt(s: number): Vec2 {
-  const dx = pathSlopeAt(s);
-  const len = Math.hypot(dx, 1);
-  return { x: dx / len, y: 1 / len };
+/** Unit normal pointing away from the island's center. */
+export function spiralNormalAt(theta: number): Vec2 {
+  const t = spiralTangentAt(theta);
+  return { x: t.y, y: -t.x };
 }
 
-/** Unit normal at `s`, pointing to the left of the direction of travel. */
-export function pathNormalAt(s: number): Vec2 {
-  const t = pathTangentAt(s);
-  return { x: -t.y, y: t.x };
+/** Advance `theta` by arc length `ds` (numerically; the spiral has no closed-form inverse). */
+export function spiralAdvance(theta: number, ds: number): number {
+  const steps = Math.max(1, Math.ceil(Math.abs(ds) / 0.5));
+  const h = ds / steps;
+  let t = theta;
+  for (let i = 0; i < steps; i++) {
+    t += h / Math.hypot(spiralRadiusAt(t), GROWTH_PER_RADIAN);
+  }
+  return t;
 }
 
-/** Point offset `lateral` plane units sideways from the centerline at `s`. */
-export function pathOffsetPoint(s: number, lateral: number): Vec2 {
-  const center = pathPointAt(s);
-  const normal = pathNormalAt(s);
-  return { x: center.x + normal.x * lateral, y: center.y + normal.y * lateral };
-}
-
-export interface PathSpan {
-  /** Forward distance of the first tree row. Negative -- the span is centered on s = 0. */
-  start: number;
-  /** Forward distance of the last tree row. */
-  end: number;
+/** Sideways meander of the stream at distance `along` from the island center. */
+export function streamMeanderAt(along: number): number {
+  const ease = Math.min(1, Math.max(0, (along - 8) / 10));
+  return Math.sin(along * 0.21) * 1.7 * ease;
 }
 
 /**
- * Forward extent the exhibit occupies for a given tree count, centered on
- * s = 0. Trees are placed two per row, so the span grows one PATH_SPACING per
- * pair. A single tree still gets a short span so the path never degenerates
- * to a point.
+ * Stream-relative coordinates of a plane point: `along` is distance from the
+ * island center down the stream's axis, `across` the signed distance from the
+ * (meandering) centerline. Behind the summit `across` is the plain distance
+ * from the center, so the stream has a rounded head rather than a line through
+ * the whole island.
  */
-export function computePathSpan(treeCount: number): PathSpan {
-  const rowCount = Math.max(Math.ceil(treeCount / 2), 1);
-  const length = Math.max(rowCount - 1, 1) * LAYOUT.PATH_SPACING;
-  return { start: -length / 2, end: length / 2 };
+export function streamCoords(x: number, y: number): { along: number; across: number } {
+  const dx = Math.cos(LAYOUT.STREAM_ANGLE);
+  const dy = Math.sin(LAYOUT.STREAM_ANGLE);
+  const along = x * dx + y * dy;
+  if (along < 0) return { along, across: Math.hypot(x, y) };
+  return { along, across: -x * dy + y * dx - streamMeanderAt(along) };
+}
+
+export interface Station {
+  theta: number;
+  point: Vec2;
+  normal: Vec2;
+}
+
+export interface SpiralPlan {
+  stations: Station[];
+  /** Where the walk ends and the gate stands. */
+  thetaEnd: number;
 }
 
 /**
- * Nearest point on the centerline to an arbitrary plane point, returned as
- * `{ s, distance, side }` where `side` is +1 left of travel, -1 right.
- *
- * Coarse scan then refine: the curve is y-monotonic, so `s` is always close
- * to `y` -- searching a window around it converges far faster than projecting
- * onto a sampled polyline, and never needs the polyline built at all.
+ * Stations for `treeCount` trees (two per station), stepping over the stream:
+ * a station whose centerline point is within STREAM_CLEARANCE of the water is
+ * pushed along the walk until it is clear, because its two trees stand on the
+ * radial through it -- which is the direction the stream runs.
  */
-export function nearestOnPath(
-  x: number,
-  y: number,
-  windowHalfWidth = 260,
-): { s: number; distance: number; side: number } {
-  let bestS = y;
-  let bestSq = Infinity;
-
-  const coarseSteps = 14;
-  for (let i = 0; i <= coarseSteps; i++) {
-    const s = y - windowHalfWidth + (2 * windowHalfWidth * i) / coarseSteps;
-    const dx = x - pathOffsetAt(s);
-    const dy = y - s;
-    const sq = dx * dx + dy * dy;
-    if (sq < bestSq) {
-      bestSq = sq;
-      bestS = s;
+export function planSpiral(treeCount: number): SpiralPlan {
+  const stationCount = Math.max(1, Math.ceil(treeCount / 2));
+  const stations: Station[] = [];
+  let theta = 0.35;
+  for (let i = 0; i < stationCount; i++) {
+    for (let guard = 0; guard < 200; guard++) {
+      const p = spiralPointAt(theta);
+      const sc = streamCoords(p.x, p.y);
+      if (sc.along < 0 || Math.abs(sc.across) >= LAYOUT.STREAM_CLEARANCE) break;
+      theta = spiralAdvance(theta, 1);
     }
+    stations.push({ theta, point: spiralPointAt(theta), normal: spiralNormalAt(theta) });
+    theta = spiralAdvance(theta, LAYOUT.STATION_SPACING);
   }
-
-  let step = (2 * windowHalfWidth) / coarseSteps;
-  for (let pass = 0; pass < 4; pass++) {
-    step *= 0.5;
-    for (const s of [bestS - step, bestS + step]) {
-      const dx = x - pathOffsetAt(s);
-      const dy = y - s;
-      const sq = dx * dx + dy * dy;
-      if (sq < bestSq) {
-        bestSq = sq;
-        bestS = s;
-      }
-    }
-  }
-
-  const normal = pathNormalAt(bestS);
-  const toPointX = x - pathOffsetAt(bestS);
-  const toPointY = y - bestS;
-  const side = toPointX * normal.x + toPointY * normal.y >= 0 ? 1 : -1;
-
-  return { s: bestS, distance: Math.sqrt(bestSq), side };
+  const last = stations[stations.length - 1].theta;
+  return { stations, thetaEnd: spiralAdvance(last, LAYOUT.HEAD_LENGTH) };
 }

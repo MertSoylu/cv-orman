@@ -116,7 +116,7 @@ export default function TreeDetailPanel({ tree, onClose }: TreeDetailPanelProps)
   return (
     <div className="fixed inset-0 z-[100] flex justify-end">
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-black/40 sm:bg-black/10"
         onClick={onClose}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClose(); } }}
         role="button"

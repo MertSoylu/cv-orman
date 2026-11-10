@@ -2,6 +2,7 @@ import ForestPageClient from "@/components/ForestPageClient";
 import { computeForestLayout } from "@/lib/forest/layout";
 import type { PlacedTreeData } from "@/lib/forest/treeData";
 import { fetchAllRepoNodes } from "@/lib/github/client";
+import { mockRepoNodes } from "@/lib/github/mock";
 import { normalizeRepoNodes } from "@/lib/github/normalize";
 
 // Must be a statically-analyzable literal (see api/repos/route.ts) -- keep in
@@ -13,7 +14,9 @@ export default async function Home() {
   let error = false;
 
   try {
-    const rawNodes = await fetchAllRepoNodes();
+    // FOREST_MOCK=<count> swaps GitHub for deterministic fake repos (scene work without a token).
+    const mockCount = Number(process.env.FOREST_MOCK) || 0;
+    const rawNodes = mockCount > 0 ? mockRepoNodes(mockCount) : await fetchAllRepoNodes();
     const normalized = normalizeRepoNodes(rawNodes);
     const positions = computeForestLayout(normalized);
     trees = normalized.map((tree) => ({

@@ -9,7 +9,7 @@ Her public GitHub reposu bir ağaç. Orman, CV veya düz liste yerine **canlı b
 Portfolio’yu “repo listesi” olmaktan çıkarıp **mekân** yapar. Ziyaretçi:
 
 - ormanı dolaşır (sürükle, zoom),
-- bir ağaca veya tabelasına tıklar,
+- bir ağaca tıklar,
 - o projenin yıldız, commit, yaş ve sağlık özetini görür,
 - tek tıkla GitHub’a gider.
 
@@ -20,7 +20,8 @@ Veri anlık uydurma değil: GitHub GraphQL’den gelir, periyodik yenilenir. Ar�
 | Gözlem | Anlam |
 |--------|--------|
 | **Boyut** | Büyüme skoru: yıldız + commit hacmi + yaş. Daha büyük ağaç = daha “gövdeli” proje. |
-| **Renk / solma** | Sağlık: son push’tan bu yana geçen gün. Taze yeşil → susuz kahverengi. |
+| **Renk / solma** | Sağlık: son push’tan bu yana geçen gün. Taze yeşil → susuz kahverengi; susuz ağaç yaprak da döker. |
+| **Sıra** | Yaş: spiral yolun zirvesinde en eski repo, kapıda en yenisi. |
 | **Tür (siluet)** | Ana dil. Meşe (TS/JS/Java…), çam (Rust/C/C++), sakura (Python/Ruby), huş (Go/PHP/HTML/CSS), palmiye (Swift), genel (diğer). |
 
 Gündüz / gece teması siteyle birlikte değişir; düşük güçlü cihazlarda kalite basamakları otomatik düşer. WebGL yoksa veya sahne düşerse aynı repolar erişilebilir bir listede kalır.
@@ -43,7 +44,7 @@ Yani orman hem vitrin hem de sessiz bir aktivite haritası: hangi ağaçlar taze
 
 ## Teknik iskelet (kısa)
 
-Next.js + React Three Fiber ile 3B sahne; sunucu tarafta repo çekimi ve skorlama, istemcide sergi salonu. Ana site: [mertsoylu.dev](https://mertsoylu.dev).
+Next.js + saf Three.js ile sıfırdan yazılmış bir voxel motoru (uçan ada, küp küp büyüyen ağaçlar, gece/gündüz geçişi); sunucu tarafta repo çekimi ve skorlama, istemcide sergi salonu. Ana site: [mertsoylu.dev](https://mertsoylu.dev).
 
 ---
 
