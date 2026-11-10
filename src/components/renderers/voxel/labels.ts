@@ -27,7 +27,7 @@ const GLYPHS: Record<string, number[]> = {
   "3": [30, 1, 1, 14, 1, 1, 30], "4": [2, 6, 10, 18, 31, 2, 2], "5": [31, 16, 30, 1, 1, 17, 14],
   "6": [6, 8, 16, 30, 17, 17, 14], "7": [31, 1, 2, 4, 8, 8, 8], "8": [14, 17, 17, 14, 17, 17, 14],
   "9": [14, 17, 17, 15, 1, 2, 12], "-": [0, 0, 0, 31, 0, 0, 0], _: [0, 0, 0, 0, 0, 0, 31],
-  ".": [0, 0, 0, 0, 0, 12, 12], "?": [14, 17, 1, 2, 4, 0, 4],
+  ".": [0, 0, 0, 0, 0, 12, 12], "?": [14, 17, 1, 2, 4, 0, 4], "*": [4, 4, 31, 14, 14, 27, 17], " ": [0, 0, 0, 0, 0, 0, 0],
 };
 
 const MAX_CHARS = 22;
@@ -43,9 +43,12 @@ export interface Label {
   zoom: number;
 }
 
-export function createLabel(name: string, healthColor: string): Label {
+/** `NAME *12`: the repo's name and its star count, so a tag reads as a project and not as a species label. */
+export function createLabel(name: string, healthColor: string, stars: number): Label {
   let text = name.toUpperCase();
   if (text.length > MAX_CHARS) text = `${text.slice(0, MAX_CHARS - 2)}..`;
+  const nameLength = text.length;
+  if (stars > 0) text += ` *${stars > 9999 ? "9999" : stars}`;
   const width = PAD * 2 + DOT + 3 + text.length * 6 - 1;
   const height = 7 + PAD * 2;
   const canvas = document.createElement("canvas");
@@ -62,8 +65,8 @@ export function createLabel(name: string, healthColor: string): Label {
   ctx.fillRect(width - 1, 1, 1, height - 2);
   ctx.fillStyle = healthColor;
   ctx.fillRect(PAD, PAD + 1, DOT, DOT);
-  ctx.fillStyle = "#f3eee7";
   [...text].forEach((char, i) => {
+    ctx.fillStyle = i > nameLength ? "#f2c94c" : "#f3eee7";
     const rows = GLYPHS[char] ?? GLYPHS["?"];
     for (let y = 0; y < 7; y++)
       for (let x = 0; x < 5; x++)

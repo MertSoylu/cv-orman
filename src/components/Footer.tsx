@@ -21,7 +21,7 @@ export default function Footer() {
           <div>
             <div className="mb-3 flex items-center gap-2.5">
               <span
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-accent"
+                className="inline-flex h-9 w-9 items-center justify-center text-accent"
                 style={{ backgroundColor: "rgb(var(--accent-soft))" }}
               >
                 <IconTree className="h-5 w-5" />
@@ -52,8 +52,7 @@ export default function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("nav.github")}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2"
-                style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+                className="icon-block"
               >
                 <IconGithub className="h-5 w-5" />
               </a>
@@ -62,8 +61,7 @@ export default function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t("nav.linkedin")}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2"
-                style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+                className="icon-block"
               >
                 <IconLinkedin className="h-5 w-5" />
               </a>

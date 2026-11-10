@@ -21,8 +21,7 @@ function IconToggle({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2"
-      style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+      className="icon-block"
     >
       {children}
     </button>
@@ -53,9 +52,9 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b bg-canvas/85 backdrop-blur-md" style={{ borderColor: "rgb(var(--line) / 0.1)" }}>
       <nav className="container-wide flex h-16 items-center justify-between gap-4">
-        <a href={MAIN_SITE_URL} className="group flex items-center gap-2.5 rounded-lg py-1" aria-label={t("nav.home")}>
+        <a href={MAIN_SITE_URL} className="group flex items-center gap-2.5 py-1" aria-label={t("nav.home")}>
           <span
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-accent transition-transform duration-200 group-hover:-translate-y-0.5"
+            className="inline-flex h-9 w-9 items-center justify-center text-accent transition-transform duration-200 group-hover:-translate-y-0.5"
             style={{ backgroundColor: "rgb(var(--accent-soft))" }}
           >
             <IconTree className="h-5 w-5" />
@@ -68,7 +67,7 @@ export default function Navbar() {
 
         <div className="hidden items-center gap-1 md:flex">
           {links.map((link) => (
-            <a key={link.href} href={link.href} className="link-underline rounded-md px-3 py-2 text-sm font-medium text-muted transition-colors hover:text-fg">
+            <a key={link.href} href={link.href} className="link-underline px-3 py-2 text-sm font-medium text-muted transition-colors hover:text-fg">
               {link.label}
             </a>
           ))}
@@ -80,8 +79,7 @@ export default function Navbar() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={t("nav.github")}
-            className="hidden h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2 sm:inline-flex"
-            style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+            className="icon-block hidden sm:inline-flex"
           >
             <IconGithub className="h-4.5 w-4.5" />
           </a>
@@ -90,8 +88,7 @@ export default function Navbar() {
             target="_blank"
             rel="noopener noreferrer"
             aria-label={t("nav.linkedin")}
-            className="hidden h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2 sm:inline-flex"
-            style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+            className="icon-block hidden sm:inline-flex"
           >
             <IconLinkedin className="h-4.5 w-4.5" />
           </a>
@@ -110,8 +107,7 @@ export default function Navbar() {
             aria-label={menuOpen ? t("nav.closeMenu") : t("nav.menu")}
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2 md:hidden"
-            style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+            className="icon-block md:hidden"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
               {menuOpen ? (
@@ -143,7 +139,7 @@ export default function Navbar() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMenuOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                className="px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-surface-2 hover:text-fg"
               >
                 {link.label}
               </a>
@@ -155,8 +151,7 @@ export default function Navbar() {
                 rel="noopener noreferrer"
                 aria-label={t("nav.github")}
                 onClick={() => setMenuOpen(false)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2"
-                style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+                className="icon-block"
               >
                 <IconGithub className="h-5 w-5" />
               </a>
@@ -166,8 +161,7 @@ export default function Navbar() {
                 rel="noopener noreferrer"
                 aria-label={t("nav.linkedin")}
                 onClick={() => setMenuOpen(false)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-surface text-fg transition-colors hover:bg-surface-2"
-                style={{ borderColor: "rgb(var(--line) / 0.12)" }}
+                className="icon-block"
               >
                 <IconLinkedin className="h-5 w-5" />
               </a>

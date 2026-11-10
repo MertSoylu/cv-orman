@@ -14,6 +14,7 @@
   --accent: 194 86 47;
   --accent-strong: 162 68 31;
   --accent-soft: 246 221 208;
+  --shade: 28 24 21;
 }
 
 .dark {
@@ -27,6 +28,7 @@
   --accent: 224 118 79;
   --accent-strong: 239 144 105;
   --accent-soft: 58 36 26;
+  --shade: 0 0 0;
 }
 
 @theme inline {
@@ -93,7 +95,6 @@
   :focus-visible {
     outline: 2px solid rgb(var(--accent));
     outline-offset: 3px;
-    border-radius: 5px;
   }
 
   ::-webkit-scrollbar {
@@ -138,41 +139,123 @@
     min-height: 20rem;
   }
 
+  /* The page's furniture is cut from the same block as the scene: square
+     corners, a hard two-pixel edge and a solid offset shadow -- no radius, no
+     blur. Colours and the display/body fonts are still the main site's. */
   .eyebrow {
     @apply inline-flex items-center gap-2 text-xs font-semibold uppercase text-muted;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.18em;
+  }
+
+  /* Figures and short labels: the body face, set tight and tabular. A pixel web font was tried here and
+     dropped -- at 12px its C read as O and its 5 as S, and the scene's own bitmap tags already carry that voice. */
+  .font-pixel {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+  }
+
+  .block-edge {
+    border: 2px solid rgb(var(--line) / 0.22);
+    box-shadow: 4px 4px 0 rgb(var(--shade) / 0.32);
+  }
+
+  .voxel-panel {
+    border: 2px solid rgb(var(--line) / 0.22);
+    box-shadow: 4px 4px 0 rgb(var(--shade) / 0.32);
+    background-color: rgb(var(--canvas) / 0.92);
+  }
+
+  .voxel-chip {
+    @apply inline-flex items-baseline gap-1.5 px-2.5 py-1;
+    border: 2px solid rgb(var(--line) / 0.16);
+    background-color: rgb(var(--surface) / 0.8);
   }
 
   .btn-primary,
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold transition-transform duration-100;
+    box-shadow: 4px 4px 0 rgb(var(--shade) / 0.35);
+  }
+
+  .btn-primary:hover,
+  .btn-secondary:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0 rgb(var(--shade) / 0.35);
+  }
+
+  .btn-primary:active,
+  .btn-secondary:active {
+    transform: translate(3px, 3px);
+    box-shadow: 1px 1px 0 rgb(var(--shade) / 0.35);
   }
 
   .btn-primary {
-    @apply bg-accent text-white hover:bg-accent-strong hover:-translate-y-0.5;
+    @apply bg-accent text-white;
+    border: 2px solid rgb(var(--accent-strong));
   }
 
   .btn-secondary {
-    @apply border bg-surface text-fg hover:-translate-y-0.5 hover:bg-surface-2;
-    border-color: rgb(var(--line) / 0.15);
-  }
-
-  .btn-secondary:hover {
-    border-color: rgb(var(--line) / 0.3);
+    @apply bg-surface text-fg;
+    border: 2px solid rgb(var(--line) / 0.22);
   }
 
   .card,
   .card-hover {
-    @apply rounded-2xl border bg-surface;
-    border-color: rgb(var(--line) / 0.12);
+    @apply bg-surface;
+    border: 2px solid rgb(var(--line) / 0.22);
+    box-shadow: 4px 4px 0 rgb(var(--shade) / 0.32);
   }
 
   .card-hover {
-    @apply transition-all duration-300 hover:-translate-y-1;
+    @apply transition-transform duration-150 hover:-translate-y-0.5;
   }
 
-  .card-hover:hover {
-    border-color: rgb(var(--line) / 0.25);
+  .voxel-hint {
+    border: 2px solid rgb(var(--line) / 0.18);
+    background-color: rgb(var(--canvas) / 0.92);
+    box-shadow: 3px 3px 0 rgb(var(--shade) / 0.3);
+  }
+
+  /* Square icon button (navbar, footer, panel close). */
+  .icon-block {
+    @apply inline-flex h-11 w-11 items-center justify-center bg-surface text-fg transition-transform duration-100;
+    border: 2px solid rgb(var(--line) / 0.18);
+    box-shadow: 3px 3px 0 rgb(var(--shade) / 0.28);
+  }
+
+  .icon-block:hover {
+    @apply bg-surface-2;
+    transform: translate(-1px, -1px);
+  }
+
+  .icon-block:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 rgb(var(--shade) / 0.28);
+  }
+
+  /* Loading: three cubes stacking, on a stepped clock like everything in the scene. */
+  .cube-loader {
+    @apply flex items-end gap-1.5;
+    height: 2.5rem;
+  }
+
+  .cube-loader span {
+    width: 0.75rem;
+    height: 0.75rem;
+    background: rgb(var(--accent));
+    box-shadow: inset -3px -3px 0 rgb(0 0 0 / 0.22), inset 3px 3px 0 rgb(255 255 255 / 0.18);
+    animation: cube-hop 0.9s steps(4, end) infinite;
+  }
+
+  .cube-loader span:nth-child(2) {
+    animation-delay: 0.15s;
+    background: #6fae4f;
+  }
+
+  .cube-loader span:nth-child(3) {
+    animation-delay: 0.3s;
+    background: #d9a441;
   }
 
   .link-underline {
@@ -187,6 +270,16 @@
   .link-underline:hover::after,
   .link-underline:focus-visible::after {
     @apply scale-x-100;
+  }
+}
+
+@keyframes cube-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5rem);
   }
 }
 

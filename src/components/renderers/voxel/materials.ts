@@ -16,6 +16,11 @@ import * as THREE from "three";
  *    first, and the CPU does nothing per frame for it.
  *  - **Leaf flutter**, displaced per *voxel* rather than per vertex, so cubes
  *    stay cubes.
+ *  - **Face grain.** Each cube face is shaded as a 4x4 block of texels with a
+ *    darker rim, hashed from the voxel's own grid position -- the detail of a
+ *    pixel-art texture without a texture. It fades out by screen-space
+ *    derivative before a texel gets smaller than a pixel, because sub-pixel
+ *    hash noise shimmers and no amount of MSAA fixes shader aliasing.
  *
  * The same vertex patch goes into the depth material, otherwise a tree's full
  * shadow lies on the ground while the tree itself is still two voxels tall.
@@ -27,9 +32,14 @@ export const shared = {
   uWind: new THREE.Uniform(1),
 };
 
-const VERT_HEAD = /* glsl */ `
+const VERT_LIT_HEAD = /* glsl */ `
 attribute float aGlow;
 varying float vGlow;
+varying vec3 vVoxPos;
+varying vec3 vVoxN;
+`;
+
+const VERT_HEAD = /* glsl */ `
 #ifdef VOXEL_ANIMATED
 attribute vec3 aCenter;
 attribute vec2 aInfo;
@@ -41,7 +51,6 @@ uniform float uWind;
 
 const VERT_BODY = /* glsl */ `
 vec3 transformed = vec3(position);
-vGlow = aGlow;
 #ifdef VOXEL_ANIMATED
 {
   float k = clamp((uGrow - aInfo.x) / 0.035, 0.0, 1.0);
@@ -56,11 +65,36 @@ vGlow = aGlow;
 #endif
 `;
 
-function patchVertex(shader: { vertexShader: string }): void {
+function patchVertex(shader: { vertexShader: string }, lit: boolean): void {
   shader.vertexShader = shader.vertexShader
-    .replace("#include <common>", `#include <common>\n${VERT_HEAD}`)
-    .replace("#include <begin_vertex>", VERT_BODY);
+    .replace("#include <common>", `#include <common>\n${lit ? VERT_LIT_HEAD : ""}${VERT_HEAD}`)
+    .replace("#include <begin_vertex>", `${VERT_BODY}${lit ? "vGlow = aGlow; vVoxPos = position; vVoxN = normal;" : ""}`);
 }
+
+const FRAG_HEAD = /* glsl */ `
+varying float vGlow;
+varying vec3 vVoxPos;
+varying vec3 vVoxN;
+uniform float uNight;
+uniform float uHover;
+float voxHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+`;
+
+const FRAG_GRAIN = /* glsl */ `
+{
+  vec3 q = vVoxPos - vVoxN * 0.02;
+  vec3 fq = fract(q);
+  vec3 e = min(fq, 1.0 - fq) + abs(vVoxN) * 4.0;
+  float edge = min(e.x, min(e.y, e.z));
+  float px = max(fwidth(vVoxPos.x), max(fwidth(vVoxPos.y), fwidth(vVoxPos.z)));
+  float coarse = 1.0 - smoothstep(0.12, 0.3, px);
+  float fine = 1.0 - smoothstep(0.05, 0.14, px);
+  float grain = (voxHash(floor(q * 4.0)) - 0.5) * 0.2 * coarse;
+  grain += (voxHash(floor(q * 8.0) + 9.0) - 0.5) * 0.1 * fine;
+  float rim = (1.0 - smoothstep(0.06, 0.1, edge)) * -0.13 * (1.0 - smoothstep(0.05, 0.16, px));
+  diffuseColor.rgb *= 1.0 + grain + rim;
+}
+`;
 
 export interface VoxelMaterialOptions {
   animated?: boolean;
@@ -78,10 +112,10 @@ export function createVoxelMaterial(opts: VoxelMaterialOptions = {}): THREE.Mesh
     shader.uniforms.uWind = shared.uWind;
     shader.uniforms.uNight = shared.uNight;
     shader.uniforms.uHover = hover;
-    patchVertex(shader);
+    patchVertex(shader, true);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying float vGlow;\nuniform float uNight;\nuniform float uHover;")
-      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 + uHover * 0.3;")
+      .replace("#include <common>", `#include <common>\n${FRAG_HEAD}`)
+      .replace("#include <color_fragment>", `#include <color_fragment>\n${FRAG_GRAIN}\ndiffuseColor.rgb *= 1.0 + uHover * 0.3;`)
       .replace(
         "#include <opaque_fragment>",
         "outgoingLight += diffuseColor.rgb * vGlow * uNight * vec3(1.0, 0.56, 0.2) * 2.4;\noutgoingLight += diffuseColor.rgb * uHover * 0.12;\n#include <opaque_fragment>",
@@ -102,8 +136,7 @@ export function animatedDepthMaterial(): THREE.MeshDepthMaterial {
     shader.uniforms.uTime = shared.uTime;
     shader.uniforms.uGrow = shared.uGrow;
     shader.uniforms.uWind = shared.uWind;
-    patchVertex(shader);
-    shader.vertexShader = shader.vertexShader.replace("vGlow = aGlow;", "").replace("attribute float aGlow;\nvarying float vGlow;", "");
+    patchVertex(shader, false);
   };
   material.customProgramCacheKey = () => "voxel-depth";
   depthMaterial = material;

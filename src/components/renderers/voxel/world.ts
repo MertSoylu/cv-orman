@@ -10,7 +10,7 @@ import { buildIsland, buildIslet, isEmissive, isWater, terrainColor, type Island
 import { LEAF, buildTree } from "./trees";
 import { createSky, type Sky } from "./sky";
 import { createWaterMaterial, createWaterfall } from "./water";
-import { KIND_DAY, KIND_FIREFLY, KIND_LIT, createParticles, type ParticleSpec } from "./particles";
+import { KIND_BEACON, KIND_DAY, KIND_FIREFLY, KIND_LIT, createParticles, type ParticleSpec } from "./particles";
 import { createLabel, type Label } from "./labels";
 
 /**
@@ -33,6 +33,8 @@ export interface WorldOptions {
   reducedMotion: boolean;
   quality: QualityPreset;
   onSelect: (id: string) => void;
+  /** The tree under the pointer changed or the pointer moved over it. Client coordinates. */
+  onHover: (id: string | null, x: number, y: number) => void;
   onReady: () => void;
 }
 
@@ -48,6 +50,7 @@ const FOV = 32;
 const HOME_AZIMUTH = 0.5;
 const HOME_ELEVATION = 0.5;
 const HEALTH_RAMP = ["#6fae4f", "#a9b84a", "#d9a441", "#c8762b", "#8a5a2b"];
+const BEACON_RAMP: [number, number, number][] = [[0.35, 0.95, 0.4], [0.7, 0.9, 0.3], [1, 0.75, 0.2], [1, 0.5, 0.15], [0.85, 0.35, 0.15]];
 /** Seconds a frame may average before the governor gives something up. */
 const SLOW_FRAME = 1 / 28;
 
@@ -59,6 +62,8 @@ interface TreeEntry {
   base: number;
   height: number;
   label: Label;
+  /** Squared camera distance to the tag, refreshed each frame for the declutter pass. */
+  distance: number;
   /** When, on the shared growth clock, this tree has finished assembling. */
   grownAt: number;
   ease: number;
@@ -172,6 +177,7 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
   let pointerDirty = false;
   let hoveredId: string | null = null;
   const down = { x: 0, y: 0, time: 0 };
+  const client = { x: 0, y: 0 };
 
   const pick = (): string | null => {
     raycaster.setFromCamera(pointer, camera);
@@ -195,6 +201,8 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
   const onPointerMove = (event: PointerEvent) => {
     if (event.pointerType === "touch") return;
     setPointer(event);
+    client.x = event.clientX;
+    client.y = event.clientY;
     pointerInside = true;
     pointerDirty = true;
   };
@@ -333,12 +341,24 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
         new THREE.Vector3(data.x + v.ox + v.sx + 0.3, base + v.sy + 0.3, data.y + v.oz + v.sz + 0.3),
       );
       const tier = clamp(Math.floor(((1 - data.healthStage) / 0.85) * 4.99), 0, 4);
-      const label = createLabel(data.name, HEALTH_RAMP[tier]);
-      label.sprite.position.set(data.x + 0.5, base + model.height + 1.6, data.y + 0.5);
+      const label = createLabel(data.name, HEALTH_RAMP[tier], data.stars);
+      label.sprite.position.set(data.x + 0.5, base + model.height + 3.4, data.y + 0.5);
+      // A pulsing marker over every repo tree and none over the wild ones: the game convention for "this one is a thing".
+      for (let k = 0; k < 2; k++) {
+        specs.push({
+          origin: [data.x + 0.5, base + model.height + 0.9, data.y + 0.5],
+          travel: [0, 1.5, 0],
+          period: 2.6,
+          size: 0.8,
+          sway: 0,
+          color: BEACON_RAMP[tier],
+          kind: KIND_BEACON,
+        });
+      }
       scene.add(label.sprite);
       disposables.push(label.sprite.material, label.sprite.material.map as THREE.Texture);
 
-      const entry: TreeEntry = { data, mesh, hover, box, base, height: model.height, label, grownAt: birthOffset + 0.42, ease: 0 };
+      const entry: TreeEntry = { data, mesh, hover, box, base, height: model.height, label, grownAt: birthOffset + 0.42, ease: 0, distance: 0 };
       entries.push(entry);
       byId.set(data.id, entry);
 
@@ -439,6 +459,10 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
     }
   };
 
+  const placed: number[] = [];
+  const projected = new THREE.Vector3();
+  const rank = (entry: TreeEntry) => (entry.data.id === hoveredId || entry.data.id === selectedId ? -1 : entry.distance);
+
   // --- Frame loop ------------------------------------------------------------------------------
   let raf = 0;
   let last = performance.now();
@@ -474,6 +498,7 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
         hoveredId = id;
         canvas.style.cursor = id ? "pointer" : "grab";
       }
+      options.onHover(id, client.x, client.y);
     }
 
     // Camera.
@@ -503,6 +528,11 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
     // Trees and their tags.
     const pixel = (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / height;
     const rate = 1 - Math.exp(-dt * 12);
+    // Tags are always up -- they are what says "these trees are repositories" -- so they have to be
+    // decluttered: nearest first, and a tag that would land on one already placed stays down.
+    placed.length = 0;
+    for (const entry of entries) entry.distance = camera.position.distanceToSquared(entry.label.sprite.position);
+    entries.sort((a, b) => rank(a) - rank(b));
     for (const entry of entries) {
       const active = entry.data.id === hoveredId || entry.data.id === selectedId;
       entry.ease = reducedMotion ? (active ? 1 : 0) : lerp(entry.ease, active ? 1 : 0, rate);
@@ -512,15 +542,22 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
       entry.mesh.position.set(entry.data.x - 0.5 * (s - 1), entry.base, entry.data.y - 0.5 * (s - 1));
 
       const label = entry.label;
-      const distance = camera.position.distanceTo(label.sprite.position);
       const grown = smoothstep(entry.grownAt - 0.05, entry.grownAt + 0.05, shared.uGrow.value);
-      // From the resting view the island is a picture and tags are clutter; they come up as you move in.
-      const near = 1 - smoothstep(home.distance * 0.5, home.distance * 0.8, distance);
-      const target = grown * (active ? 1 : selectedId ? 0.25 * near : 0.92 * near);
+      const zoom = active ? 3 : 2;
+      projected.copy(label.sprite.position).project(camera);
+      const sx = (projected.x * 0.5 + 0.5) * width;
+      const sy = (1 - (projected.y * 0.5 + 0.5)) * height;
+      const hw = (label.width * zoom) / 2 + 3;
+      const hh = label.height * zoom + 3;
+      let free = projected.z < 1;
+      for (let i = 0; free && i < placed.length; i += 4) {
+        if (Math.abs(sx - placed[i]) < hw + placed[i + 2] && sy > placed[i + 1] && sy - hh < placed[i + 1] + placed[i + 3]) free = false;
+      }
+      if (free || active) placed.push(sx, sy - hh, hw, hh);
+      const target = grown * (active ? 1 : !free ? 0 : selectedId ? 0.3 : 0.94);
       label.opacity = lerp(label.opacity, target, rate);
       label.sprite.material.opacity = label.opacity;
       label.sprite.visible = label.opacity > 0.01;
-      const zoom = active ? 3 : 2;
       label.sprite.scale.set(label.width * zoom * pixel, label.height * zoom * pixel, 1);
       label.sprite.renderOrder = active ? 30 : 20;
     }
@@ -575,7 +612,7 @@ export function createWorld(container: HTMLElement, options: WorldOptions): Worl
         // Keep the current compass bearing, drop to a three-quarter view, and stand back by the tree's own height.
         const target = new THREE.Vector3(entry.data.x + 0.5, entry.base + entry.height * 0.52, entry.data.y + 0.5);
         const bearing = Math.atan2(camera.position.z - controls.target.z, camera.position.x - controls.target.x);
-        const distance = Math.max(42, entry.height * 3.5) / Math.min(1, (width / height) * 1.1);
+        const distance = Math.max(58, entry.height * 4.4) / Math.min(1, (width / height) * 1.1);
         const position = new THREE.Vector3(Math.cos(bearing) * Math.cos(0.42), Math.sin(0.42), Math.sin(bearing) * Math.cos(0.42))
           .multiplyScalar(distance)
           .add(target);
